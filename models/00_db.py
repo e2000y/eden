@@ -112,6 +112,8 @@ auth.define_tables(migrate = migrate,
                    fake_migrate = fake_migrate,
                    )
 
+auth.settings.actions_disabled.append('register')
+
 current.audit = audit = s3base.S3Audit(migrate = migrate,
                                        fake_migrate = fake_migrate,
                                        )

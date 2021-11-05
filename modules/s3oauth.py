@@ -287,7 +287,7 @@ class GooglePlusAccount(OAuthAccount):
             open_url = None
             opener = self.__build_url_opener(self.token_url)
             try:
-                open_url = opener.open(self.token_url, urlencode(data))
+                open_url = opener.open(self.token_url, urlencode(data).encode())
             except HTTPError as e:
                 raise Exception(e.read())
             finally:

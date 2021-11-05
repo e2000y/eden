@@ -23,7 +23,7 @@ FINISHED_EDITING_CONFIG_FILE = False
 # - Workflows
 # - Theme
 # - note that you should restart your web2py after changing this setting
-settings.base.template = "default"
+settings.base.template = "SAMBRO"
 
 # Database settings
 # Uncomment to use a different database, other than sqlite
@@ -48,9 +48,13 @@ settings.base.template = "default"
 
 # Base settings
 #settings.base.system_name = T("Sahana Eden Humanitarian Management Platform")
+settings.base.system_name = T("Emergency Management Platform")
 #settings.base.system_name_short = T("Sahana Eden")
+settings.base.system_name_short = T("SPAS")
 # Set this to the Public URL of the instance
 #settings.base.public_url = "http://127.0.0.1:8000"
+settings.base.public_url = "https://sahana.jspectrum.com:6677/"
+
 
 # Switch to "False" in Production for a Performance gain
 # (need to set to "True" again when Table definitions are changed)

@@ -1566,7 +1566,7 @@ class S3Config(Storage):
             Change this if-required for your theme
             NB API can override this in specific modules
         """
-        return self.gis.get("map_height", 600)
+        return self.gis.get("map_height", 800)
 
     def get_gis_map_width(self):
         """
@@ -1582,11 +1582,11 @@ class S3Config(Storage):
 
     def get_gis_map_selector_height(self):
         """ Height of the map selector map """
-        return self.gis.get("map_selector_height", 340)
+        return self.gis.get("map_selector_height", 480)
 
     def get_gis_map_selector_width(self):
         """ Width of the map selector map """
-        return self.gis.get("map_selector_width", 480)
+        return self.gis.get("map_selector_width", 640)
 
     def get_gis_marker_max_height(self):
         return self.gis.get("marker_max_height", 35)
