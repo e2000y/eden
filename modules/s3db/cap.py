@@ -1895,8 +1895,8 @@ class CAPAreaModel(S3Model):
                                                                                          ),
                                                                        ),
                                                          ),
-                                    "altitude",
-                                    "ceiling",
+                                    #"altitude",
+                                    #"ceiling",
                                     )
 
         # Table Configuration
@@ -3548,14 +3548,14 @@ class CAPHistoryModel(S3Model):
                                                                           ),
                                                       ),
                                         ),
-                                    "altitude",
-                                    "ceiling",
+                                    #"altitude",
+                                    #"ceiling",
                                     )
 
         # List Fields
         list_fields = ["name",
-                       "altitude",
-                       "ceiling",
+                       #"altitude",
+                       #"ceiling",
                        ]
 
         # Table Configuration

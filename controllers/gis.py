@@ -3094,6 +3094,7 @@ def display_feature():
                                                   table.parent,
                                                   table.lat,
                                                   table.lon,
+                                                  table.radius,
                                                   table.wkt,
                                                   limitby = (0, 1),
                                                   ).first()
@@ -3105,6 +3106,7 @@ def display_feature():
     # Centre on Location
     lat = location.lat
     lon = location.lon
+    rad = location.radius
     if (lat is None) or (lon is None):
         if location.parent:
             # Skip the current record if we can
@@ -3125,6 +3127,7 @@ def display_feature():
 
     options = {"lat": lat,
                "lon": lon,
+               "rad": rad,
                #"zoom": zoom,
                "bbox": bounds,
                "window": False,
@@ -3158,8 +3161,7 @@ def display_feature():
             feature_opts["filter"] = "~.id=%s" % record_id
         options["feature_resources"] = [feature_opts]
     else:
-        # Just display feature geometry
-        options["features"] = [location.wkt]
+        options['features'] = [location.wkt]
 
     # Add Width & Height if opened in Window
     if get_vars.popup == "1":

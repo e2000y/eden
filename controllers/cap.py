@@ -819,9 +819,9 @@ def alert():
             elif r.component_name == "area":
                 atable = r.component.table
                 list_fields = ["name",
-                               "altitude",
-                               "ceiling",
-                               (T("Polygon"), "location.location_id"),
+                               #"altitude",
+                               #"ceiling",
+                               (T("Area"), "location.location_id"),
                                "tag.tag",
                                (T("Geocode Value"), "tag.value"),
                                ]
@@ -1031,7 +1031,7 @@ def alert():
                            "info.priority",
                            "status",
                            "scope",
-                           "msg_type",
+                           "s3_rest_controllermsg_type",
                            "info.event_type_id",
                            "info.description",
                            "info.response_type",
@@ -1389,8 +1389,8 @@ def area():
                            "event_type_id",
                            (T("Event Type"), "event_type_id$name"),
                            #"priority",
-                           "altitude",
-                           "ceiling",
+                           #"altitude",
+                           #"ceiling",
                            "location.location_id",
                            ]
 
@@ -1403,8 +1403,8 @@ def area():
             list_fields = [(T("Area Description"), "name"),
                            (T("Event Type"), "event_type_id$name"),
                            (T("WKT"), "location.location_id$wkt"),
-                           "altitude",
-                           "ceiling",
+                           #"altitude",
+                           #"ceiling",
                            ]
             # TODO DRY this (alternative not override)
             s3db.configure("cap_area",
@@ -1412,6 +1412,7 @@ def area():
                            )
 
         return True
+
     s3.prep = prep
 
     return s3_rest_controller(rheader = s3db.cap_rheader)

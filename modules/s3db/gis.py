@@ -5455,9 +5455,17 @@ class gis_LocationRepresent(S3Represent):
         return formatted
 
     # -------------------------------------------------------------------------
+    @staticmethod
+    def rad_format(rad):
+        rr = abs(rad)
+
+        return "{:.0f}".format(rr)
+
+    # -------------------------------------------------------------------------
     def lat_lon_represent(self, row):
         lat = row.lat
         lon = row.lon
+        rad = row.radius
         if lat is not None and lon is not None:
             if lat > 0:
                 lat_suffix = "N"
@@ -5469,11 +5477,21 @@ class gis_LocationRepresent(S3Represent):
             else:
                 lon_suffix = "W"
                 lon = -lon
-            text = "%s %s, %s %s" % (self.lat_lon_format(lat),
-                                     lat_suffix,
-                                     self.lat_lon_format(lon),
-                                     lon_suffix,
-                                     )
+
+            if rad is None:
+                text = "Polygon at: %s %s, %s %s" % (self.lat_lon_format(lat),
+                                         lat_suffix,
+                                         self.lat_lon_format(lon),
+                                         lon_suffix,
+                                         )
+            else:
+                text = "Circle at: %s %s, %s %s, R: %s m" % (self.lat_lon_format(lat),
+                                                          lat_suffix,
+                                                          self.lat_lon_format(lon),
+                                                          lon_suffix,
+                                                          self.rad_format(rad),
+                                                          )
+
             return text
 
     # -------------------------------------------------------------------------
@@ -5520,6 +5538,7 @@ class gis_LocationRepresent(S3Represent):
                                    ltable.inherited,
                                    ltable.lat,
                                    ltable.lon,
+                                   ltable.radius,
                                    ]
         if count == 1:
             query = (ltable.id == values[0])
@@ -5758,6 +5777,7 @@ class gis_LocationRepresent(S3Represent):
                     else:
                         # Already inside a link with onclick-script
                         script = None
+
                     represent = SPAN(s3_str(represent),
                                      ICON("map-marker",
                                           _title = self.lat_lon_represent(row),

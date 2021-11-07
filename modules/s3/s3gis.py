@@ -6271,6 +6271,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
             current.log.error("Invalid Shape: %s" % wkt)
             return None
 
+
         settings = current.deployment_settings
 
         if not precision:
@@ -6339,6 +6340,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                  bbox = {},
                  lat = None,
                  lon = None,
+                 rad = None,
                  zoom = None,
                  projection = None,
                  add_feature = False,
@@ -6396,6 +6398,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                  }
             @param lat: default Latitude of viewport (if not provided then the default setting from the Map Service Catalogue is used)
             @param lon: default Longitude of viewport (if not provided then the default setting from the Map Service Catalogue is used)
+            @param rad: radius of the circle shown
             @param zoom: default Zoom level of viewport (if not provided then the default setting from the Map Service Catalogue is used)
             @param projection: EPSG code for the Projection to use (if not provided then the default setting from the Map Service Catalogue is used)
             @param add_feature: Whether to include a DrawFeature control to allow adding a marker to the map
@@ -6480,6 +6483,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                    bbox = bbox,
                    lat = lat,
                    lon = lon,
+                   rad = rad,
                    zoom = zoom,
                    projection = projection,
                    add_feature = add_feature,
