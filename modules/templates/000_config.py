@@ -27,24 +27,26 @@ settings.base.template = "SAMBRO"
 
 # Database settings
 # Uncomment to use a different database, other than sqlite
-#settings.database.db_type = "postgres"
+settings.database.db_type = "postgres"
 #settings.database.db_type = "mysql"
 # Uncomment to use a different host
-#settings.database.host = "localhost"
+settings.database.host = "localhost"
 # Uncomment to use a different port
 #settings.database.port = 3306
-#settings.database.port = 5432
+settings.database.port = 5432
 # Uncomment to select a different name for your database
-#settings.database.database = "sahana"
+settings.database.database = "sahana"
 # Uncomment to select a different username for your database
-#settings.database.username = "sahana"
+settings.database.username = "sahana"
 # Uncomment to set the password
 # NB Web2Py doesn't like passwords with an @ in them
-#settings.database.password = "password"
+settings.database.password = "password"
 # Uncomment to use a different pool size
 #settings.database.pool_size = 30
 # Do we have a spatial DB available? (currently supports PostGIS. Spatialite to come.)
-#settings.gis.spatialdb = True
+settings.gis.spatialdb = True
+
+settings.gis.simplify_tolerance = 0.0001
 
 # Base settings
 #settings.base.system_name = T("Sahana Eden Humanitarian Management Platform")
