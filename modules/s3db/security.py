@@ -189,7 +189,7 @@ class SecurityLevelModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
 # =============================================================================
 class SecuritySeizedItemsModel(S3Model):
@@ -594,7 +594,7 @@ class SecurityStaffModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
     # -----------------------------------------------------------------------------
     @staticmethod
@@ -619,7 +619,7 @@ class SecurityStaffModel(S3Model):
             try:
                 opt = int(opt)
             except (ValueError, TypeError):
-                return current.messages["NONE"]
+                return NONE
             else:
                 opts = [opt]
                 vals = str(names.get(opt)["name"])

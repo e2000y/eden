@@ -34,6 +34,8 @@ __all__ = ("S3Importer",
            "S3ImportItem",
            "S3Duplicate",
            "S3BulkImporter",
+           "s3_import_csv",
+           "s3_import_url",
            )
 
 import datetime
@@ -81,12 +83,12 @@ class S3Importer(S3Method):
     # -------------------------------------------------------------------------
     def apply_method(self, r, **attr):
         """
-            Apply method
+            Args
+                r: the S3Request
+                attr: dictionary of parameters for the method handler
 
-            @param r: the S3Request
-            @param attr: dictionary of parameters for the method handler
-
-            @return: output object to send to the view
+            Returns:
+                output object to send to the view
 
             Known means of communicating with this module:
 
@@ -341,7 +343,7 @@ class S3Importer(S3Method):
                                      function = self.function,
                                      filename = ofilename,
                                      file = sfilename,
-                                     user_id = current.session.auth.user.id
+                                     user_id = current.session.auth.user.id,
                                      )
         else:
             title = self.upload_title
@@ -450,9 +452,6 @@ class S3Importer(S3Method):
 
     # -------------------------------------------------------------------------
     def display_job(self, upload_id):
-        """
-            @todo: docstring?
-        """
 
         #current.log.debug("S3Importer.display_job()")
 
@@ -537,8 +536,9 @@ class S3Importer(S3Method):
         """
             Import a source
 
-            @param source: the source
-            @param transform: the stylesheet path
+            Args:
+                source: the source
+                transform: the stylesheet path
         """
 
         #current.log.debug("S3Importer.commit(%s, %s)" % (source, transform))
@@ -615,9 +615,6 @@ class S3Importer(S3Method):
 
     # -------------------------------------------------------------------------
     def commit_items(self, upload_id, items):
-        """
-            @todo: docstring?
-        """
 
         #current.log.debug("S3Importer.commit_items(%s, %s)" % (upload_id, items))
 
@@ -644,7 +641,8 @@ class S3Importer(S3Method):
         """
             Delete an uploaded file and the corresponding import job
 
-            @param upload_id: the upload ID
+            Args:
+                upload_id: the upload ID
         """
 
         #current.log.debug("S3Importer.delete_job(%s)" % upload_id)
@@ -867,9 +865,9 @@ class S3Importer(S3Method):
 
         s3.actions = [{"label": s3_str(self.messages.open_btn),
                        "restrict": restrictOpen,
-                       "url": URL(r=request,
-                                  c=controller,
-                                  f=function,
+                       "url": URL(r = request,
+                                  c = controller,
+                                  f = function,
                                   args = ["import"],
                                   vars = {"job":"[id]"},
                                   ),
@@ -877,18 +875,18 @@ class S3Importer(S3Method):
                        },
                       {"label": s3_str(self.messages.view_btn),
                        "restrict": restrictView,
-                       "url": URL(r=request,
-                                  c=controller,
-                                  f=function,
+                       "url": URL(r = request,
+                                  c = controller,
+                                  f = function,
                                   args = ["import"],
                                   vars = {"job":"[id]"},
                                   ),
                        "_class": "action-btn",
                        },
                       {"label": s3_str(self.messages.delete_btn),
-                       "url": URL(r=request,
-                                  c=controller,
-                                  f=function,
+                       "url": URL(r = request,
+                                  c = controller,
+                                  f = function,
                                   args = ["import"],
                                   vars = {"job":"[id]",
                                           "delete":"True"
@@ -990,9 +988,8 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
             This will take a s3_import_upload record and
             generate the importJob
 
-            @param infile: The uploaded file
-
-            @todo: complete parameter descriptions
+            Args:
+                infile: The uploaded file
         """
 
         #current.log.debug("S3Importer._generate_import_job(%s, %s, %s, %s)" % (upload_id,
@@ -1102,7 +1099,8 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
         """
             Get the stylesheet for transformation of the import
 
-            @param file_format: the import source file format
+            Args:
+                file_format: the import source file format
         """
 
         if file_format == "csv":
@@ -1143,8 +1141,6 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
     def _commit_import_job(self, upload_id, items):
         """
             This will save all of the selected import items
-
-            @todo: parameter descriptions?
         """
 
         db = current.db
@@ -1203,8 +1199,6 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
     def _store_import_details(self, job_id, key):
         """
             This will store the details from an importJob
-
-            @todo: parameter descriptions?
         """
 
         #current.log.debug("S3Importer._store_import_details(%s, %s)" % (job_id, key))
@@ -1224,8 +1218,8 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
             This will record the results from the import, and change the
             status of the upload job
 
-            @todo: parameter descriptions?
-            @todo: report errors in referenced records, too
+            TODO:
+                report errors in referenced records, too
         """
 
         #current.log.debug("S3Importer._update_upload_job(%s)" % upload_id)
@@ -1263,9 +1257,10 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
         """
             Generate a summary flash message for a completed import job
 
-            @param totals: the job totals as tuple
-                           (total imported, total errors, total ignored)
-            @param timestmp: the timestamp of the completion
+            Args:
+                totals: the job totals as tuple
+                        (total imported, total errors, total ignored)
+                timestmp: the timestamp of the completion
         """
 
         messages = self.messages
@@ -1299,23 +1294,25 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
             and ajax call update
             Additional data will be cached to limit calls back to the server
 
-            @param list_fields: list of field names
-            @param sort_by: list of sort by columns
-            @param represent: a dict of field callback functions used
-                              to change how the data will be displayed
-                              keyed on the field identifier
+            Args:
+                list_fields: list of field names
+                sort_by: list of sort by columns
+                represent: a dict of field callback functions used
+                           to change how the data will be displayed
+                           keyed on the field identifier
 
-            @return: a dict()
-               In html representations this will be a table of the data
-               plus the sortby instructions
-               In ajax this will be a json response
+            Returns:
+                a dict()
+                In html representations this will be a table of the data
+                plus the sortby instructions
+                In ajax this will be a json response
 
-               In addition the following values will be made available:
-               recordsTotal         Number of records in the filtered data set
-               recordsFiltered  Number of records to display
-               start                Start point in the ordered data set
-               limit                Number of records in the ordered set
-               NOTE: limit - recordsFiltered = total cached
+                In addition the following values will be made available:
+                recordsTotal         Number of records in the filtered data set
+                recordsFiltered  Number of records to display
+                start                Start point in the ordered data set
+                limit                Number of records in the ordered set
+                NOTE: limit - recordsFiltered = total cached
         """
 
         from .s3data import S3DataTable
@@ -1421,7 +1418,8 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
         """
             Represent the element in an import item for dataTable display
 
-            @param value: the string containing the element
+            Args:
+                value: the string containing the element
         """
 
         try:
@@ -1478,9 +1476,10 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
         """
             Add details of the item element
 
-            @param data: the list of data elements in the item element
-            @param table: the table for the data
-            @param details: the existing details rows list (to append to)
+            Args:
+                data: the list of data elements in the item element
+                table: the table for the data
+                details: the existing details rows list (to append to)
         """
 
         tablename = table._tablename
@@ -1534,10 +1533,12 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
         """
             Try to decode string data into their original type
 
-            @param field: the Field instance
-            @param value: the stringified value
+            Args:
+                field: the Field instance
+                value: the stringified value
 
-            @todo: replace this by ordinary decoder
+            TODO:
+                Replace this by ordinary decoder
         """
 
         if field.type == "string" or  \
@@ -1571,9 +1572,11 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
         """
             Represent a datetime object as string
 
-            @param date_obj: the datetime object
+            Args:
+                date_obj: the datetime object
 
-            @todo: replace by S3DateTime method?
+            TODO:
+                Replace by S3DateTime method?
         """
 
         return date_obj.strftime("%d %B %Y, %I:%M%p")
@@ -1584,8 +1587,9 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
             Get the list of IDs for the selected items from the "mode"
             and "selected" request variables
 
-            @param upload_id: the upload_id
-            @param vars: the request variables
+            Args:
+                upload_id: the upload_id
+                vars: the request variables
         """
 
         items = None
@@ -1605,8 +1609,9 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
             Get a list of the record IDs of all import items for
             the the given upload ID
 
-            @param upload_id: the upload ID
-            @param as_string: represent each ID as string
+            Args:
+                upload_id: the upload ID
+                as_string: represent each ID as string
         """
 
         item_table = S3ImportJob.define_item_table()
@@ -1708,7 +1713,6 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
     def define_upload_table(cls):
         """ Defines the upload table """
 
-
         # @todo: move into s3db/s3.py
         db = current.db
         UPLOAD_TABLE_NAME = cls.UPLOAD_TABLE_NAME
@@ -1786,7 +1790,7 @@ $('#import-items').on('click','.toggle-item',function(){$('.importItem.item-'+$(
         return db[UPLOAD_TABLE_NAME]
 
 # =============================================================================
-class S3ImportItem(object):
+class S3ImportItem:
     """ Class representing an import item (=a single record) """
 
     METHOD = Storage(
@@ -1808,7 +1812,8 @@ class S3ImportItem(object):
         """
             Constructor
 
-            @param job: the import job this item belongs to
+            Args:
+                job: the import job this item belongs to
         """
 
         self.job = job
@@ -1881,12 +1886,14 @@ class S3ImportItem(object):
         """
             Read data from a <resource> element
 
-            @param element: the element
-            @param table: the DB table
-            @param tree: the import tree
-            @param files: uploaded files
+            Args:
+                element: the element
+                table: the DB table
+                tree: the import tree
+                files: uploaded files
 
-            @return: True if successful, False if not (sets self.error)
+            Returns:
+                True if successful, False if not (sets self.error)
         """
 
         s3db = current.s3db
@@ -2252,8 +2259,9 @@ class S3ImportItem(object):
         """
             Commit this item to the database
 
-            @param ignore_errors: skip invalid components
-                                  (still reports errors)
+            Args:
+                ignore_errors: skip invalid components
+                               (still reports errors)
         """
 
         if self.committed:
@@ -2707,7 +2715,8 @@ class S3ImportItem(object):
             an underscore, used only for new records and only if the respective
             field is not populated yet.
 
-            @param data: the data dict
+            Args:
+                data: the data dict
         """
 
         for k, v in list(data.items()):
@@ -2849,8 +2858,9 @@ class S3ImportItem(object):
             if) it has been committed. This is only needed if the reference
             could not be resolved before commit due to circular references.
 
-            @param field: the field name of the foreign key
-            @param value: the value of the foreign key
+            Args:
+                field: the field name of the foreign key
+                value: the value of the foreign key
         """
 
         table = self.table
@@ -2888,9 +2898,10 @@ class S3ImportItem(object):
         """
             Update object references in a JSON field
 
-            @param fieldname: the name of the JSON field
-            @param refkey: the reference key, a tuple (tablename, uidtype, uid)
-            @param value: the foreign key value
+            Args:
+                fieldname: the name of the JSON field
+                refkey: the reference key, a tuple (tablename, uidtype, uid)
+                value: the foreign key value
         """
 
 
@@ -3009,7 +3020,8 @@ class S3ImportItem(object):
             the references (since this can not be done before all items
             are restored), must call job.restore_references() to do that
 
-            @param row: the item table row
+            Args:
+                row: the item table row
         """
 
         xml = current.xml
@@ -3076,7 +3088,8 @@ class S3ImportJob():
     ITEM_TABLE_NAME = "s3_import_item"
 
     # -------------------------------------------------------------------------
-    def __init__(self, table,
+    def __init__(self,
+                 table,
                  tree = None,
                  files = None,
                  job_id = None,
@@ -3087,16 +3100,15 @@ class S3ImportJob():
                  onconflict = None,
                  ):
         """
-            Constructor
-
-            @param tree: the element tree to import
-            @param files: files attached to the import (for upload fields)
-            @param job_id: restore job from database (record ID or job_id)
-            @param strategy: the import strategy
-            @param update_policy: the update policy
-            @param conflict_policy: the conflict resolution policy
-            @param last_sync: the last synchronization time stamp (datetime)
-            @param onconflict: custom conflict resolver function
+            Args:
+                tree: the element tree to import
+                files: files attached to the import (for upload fields)
+                job_id: restore job from database (record ID or job_id)
+                strategy: the import strategy
+                update_policy: the update policy
+                conflict_policy: the conflict resolution policy
+                last_sync: the last synchronization time stamp (datetime)
+                onconflict: custom conflict resolver function
         """
 
         self.error = None # the last error
@@ -3129,11 +3141,11 @@ class S3ImportJob():
         # Import strategy
         if strategy is None:
             METHOD = S3ImportItem.METHOD
-            strategy = [METHOD.CREATE,
+            strategy = (METHOD.CREATE,
                         METHOD.UPDATE,
                         METHOD.DELETE,
                         METHOD.MERGE,
-                        ]
+                        )
         if not isinstance(strategy, (tuple, list)):
             strategy = [strategy]
         self.strategy = strategy
@@ -3227,19 +3239,21 @@ class S3ImportJob():
             Parse and validate an XML element and add it as new item
             to the job.
 
-            @param element: the element
-            @param original: the original DB record (if already available,
-                             will otherwise be looked-up by this function)
-            @param components: a dictionary of components (as in S3Resource)
-                               to include in the job (defaults to all
-                               defined components)
-            @param parent: the parent item (if this is a component)
-            @param joinby: the component join key(s) (if this is a component)
+            Args:
+                element: the element
+                original: the original DB record (if already available,
+                          will otherwise be looked-up by this function)
+                components: a dictionary of components (as in S3Resource)
+                            to include in the job (defaults to all
+                            defined components)
+                parent: the parent item (if this is a component)
+                joinby: the component join key(s) (if this is a component)
 
-            @return: a unique identifier for the new item, or None if there
-                      was an error. self.error contains the last error, and
-                      self.error_tree an element tree with all failing elements
-                      including error attributes.
+            Returns:
+                A unique identifier for the new item, or None if there
+                was an error. self.error contains the last error, and
+                self.error_tree an element tree with all failing elements
+                including error attributes.
         """
 
         if element in self.elements:
@@ -3487,12 +3501,13 @@ class S3ImportJob():
         """
             Find referenced elements in the tree
 
-            @param element: the element
-            @param table: the DB table
-            @param fields: the FK fields in the table
-            @param tree: the import tree
-            @param directory: a dictionary to lookup elements in the tree
-                              (will be filled in by this function)
+            Args:
+                element: the element
+                table: the DB table
+                fields: the FK fields in the table
+                tree: the import tree
+                directory: a dictionary to lookup elements in the tree
+                           (will be filled in by this function)
         """
 
         db = current.db
@@ -3689,8 +3704,9 @@ class S3ImportJob():
         """
             Resolve the reference list of an item
 
-            @param item_id: the import item UID
-            @param import_list: the ordered list of items (UIDs) to import
+            Args:
+                item_id: the import item UID
+                import_list: the ordered list of items (UIDs) to import
         """
 
         item = self.items[item_id]
@@ -3713,10 +3729,11 @@ class S3ImportJob():
         """
             Commit the import job to the DB
 
-            @param ignore_errors: skip any items with errors
-                                  (does still report the errors)
-            @param log_items: callback function to log import items
-                              before committing them
+            Args:
+                ignore_errors: skip any items with errors
+                               (does still report the errors)
+                log_items: callback function to log import items
+                           before committing them
         """
 
         ATTRIBUTE = current.xml.ATTRIBUTE
@@ -3980,7 +3997,7 @@ class S3ImportJob():
                 item.load_parent = None
 
 # =============================================================================
-class S3ObjectReferences(object):
+class S3ObjectReferences:
     """
         Utility to discover and resolve references in a JSON object;
         handles both uuid- and tuid-based references
@@ -4120,7 +4137,7 @@ class S3ObjectReferences(object):
                 obj.pop(key, None)
 
 # =============================================================================
-class S3Duplicate(object):
+class S3Duplicate:
     """ Standard deduplicator method """
 
     def __init__(self,
@@ -4131,19 +4148,19 @@ class S3Duplicate(object):
                  noupdate = False,
                  ):
         """
-            Constructor
+            Args:
+                primary: list or tuple of primary fields to find a
+                         match, must always match (mandatory, defaults
+                         to "name" field)
+                secondary: list or tuple of secondary fields to
+                           find a match, must match if values are
+                           present in the import item
+                ignore_case: ignore case for string/text fields
+                ignore_deleted: do not match deleted records
+                noupdate: match, but do not update
 
-            @param primary: list or tuple of primary fields to find a
-                            match, must always match (mandatory, defaults
-                            to "name" field)
-            @param secondary: list or tuple of secondary fields to
-                              find a match, must match if values are
-                              present in the import item
-            @param ignore_case: ignore case for string/text fields
-            @param ignore_deleted: do not match deleted records
-            @param noupdate: match, but do not update
-
-            @ToDo: Fuzzy option to do a LIKE search
+            TODO:
+                Fuzzy option to do a LIKE search
         """
 
         if not primary:
@@ -4164,12 +4181,15 @@ class S3Duplicate(object):
         """
             Entry point for importer
 
-            @param item: the import item
+            Args:
+                item: the import item
 
-            @return: the duplicate Row if match found, otherwise None
+            Returns:
+                The duplicate Row if match found, otherwise None
 
-            @raise SyntaxError: if any of the query fields doesn't exist
-                                in the item table
+            Raises:
+                SyntaxError: if any of the query fields doesn't exist
+                             in the item table
         """
 
         data = item.data
@@ -4228,10 +4248,12 @@ class S3Duplicate(object):
         """
             Helper function to generate a match-query
 
-            @param field: the Field
-            @param value: the value
+            Args:
+                field: the Field
+                value: the value
 
-            @return: a Query
+            Returns:
+                a Query
         """
 
         ftype = str(field.type)
@@ -4253,7 +4275,7 @@ class S3Duplicate(object):
         return query
 
 # =============================================================================
-class S3BulkImporter(object):
+class S3BulkImporter:
     """
         Import CSV files of data to pre-populate the database.
         Suitable for use in Testing, Demos & Simulations
@@ -4262,7 +4284,6 @@ class S3BulkImporter(object):
     """
 
     def __init__(self):
-        """ Constructor """
 
         import csv
         from xml.sax.saxutils import unescape
@@ -4611,7 +4632,7 @@ class S3BulkImporter(object):
 
         # Check if the source file is accessible
         try:
-            openFile = open(filename, "r")
+            open_file = open(filename, "r", encoding="utf-8")
         except IOError:
             return "Unable to open file %s" % filename
 
@@ -4641,7 +4662,7 @@ class S3BulkImporter(object):
                     acl_value |= acl.ALL
             return acl_value
 
-        reader = self.csv.DictReader(openFile)
+        reader = self.csv.DictReader(open_file)
         roles = {}
         acls = {}
         args = {}
@@ -4758,7 +4779,8 @@ class S3BulkImporter(object):
                                   )
 
         # 1st import any Contacts
-        current.response.s3.import_prep = current.s3db.pr_import_prep
+        from s3db.pr import pr_import_prep
+        current.response.s3.import_prep = pr_import_prep
         user_task = [1,
                      "pr",
                      "contact",
@@ -4788,17 +4810,18 @@ class S3BulkImporter(object):
         """
             Import images, such as a logo
 
-            filename     a CSV list of records and filenames
-            tablename    the name of the table
-            idfield      the field used to identify the record
-            imagefield   the field to where the image will be added
+            Args:
+                filename: a CSV list of records and filenames
+                tablename: the name of the table
+                idfield: the field used to identify the record
+                imagefield: the field to where the image will be added
 
             Example:
-            bi.import_image ("org_logos.csv", "org_organisation", "name", "logo")
-            and the file org_logos.csv may look as follows
-            id                            file
-            Sahana Software Foundation    sahanalogo.jpg
-            American Red Cross            icrc.gif
+                bi.import_image ("org_logos.csv", "org_organisation", "name", "logo")
+                and the file org_logos.csv may look as follows
+                id                            file
+                Sahana Software Foundation    sahanalogo.jpg
+                American Red Cross            icrc.gif
         """
 
         # Check if the source file is accessible
@@ -4818,7 +4841,7 @@ class S3BulkImporter(object):
         idfield = table[idfield]
         base_query = (table.deleted == False)
         fieldnames = [table._id.name,
-                      imagefield
+                      imagefield,
                       ]
         # https://github.com/web2py/web2py/blob/master/gluon/sqlhtml.py#L1947
         for field in table:
@@ -4895,11 +4918,11 @@ class S3BulkImporter(object):
             Import person images from CSV
 
             Example:
-            bi.import_pr_image("pr_image.csv")
-            and the file pr_image.csv may look as follows
-            First Name,Middle Name,Last Name,Image,Profile,Type
-            John,,Doe,jdoe.jpg,Y,
-            Type should be an integer If empty then uses default (usually 1 (Photograph))
+                bi.import_pr_image("pr_image.csv")
+                and the file pr_image.csv may look as follows
+                First Name,Middle Name,Last Name,Image,Profile,Type
+                John,,Doe,jdoe.jpg,Y,
+                Type should be an integer If empty then uses default (usually 1 (Photograph))
         """
 
         # Check if the source file is accessible
@@ -5152,7 +5175,8 @@ class S3BulkImporter(object):
         """
             Run a custom Import Script
 
-            @ToDo: Report Errors during Script run to console better
+            TODO:
+                Report Errors during Script run to console better
         """
 
         from gluon.cfs import getcfs
@@ -5318,5 +5342,140 @@ class S3BulkImporter(object):
                 self.execute_import_task(task)
             elif task[0] == 2:
                 self.execute_special_task(task)
+
+# =============================================================================
+def s3_import_csv(r):
+    """
+        Import CSV file into database
+
+        Args:
+            r: the S3Request
+
+        Note:
+            Called by S3CRUD.create
+    """
+
+    import cgi
+    import csv
+
+    csv.field_size_limit(1000000000)
+
+    infile = r.post_vars.filename
+    if isinstance(infile, cgi.FieldStorage) and infile.filename:
+        infile = infile.file
+    else:
+        try:
+            infile = open(infile, "rb")
+        except IOError:
+            current.session.error = current.T("Cannot read from file: %(filename)s") % \
+                                        {"filename": infile}
+            redirect(r.url(method = "",
+                           representation = "html",
+                           ))
+
+    table = r.resource.table
+    if table:
+        table.import_from_csv_file(stream)
+    else:
+        db = current.db
+        # This is the preferred method as it updates reference fields
+        db.import_from_csv_file(stream)
+        db.commit()
+
+# =============================================================================
+def s3_import_url(r):
+    """
+        Import data from vars in URL query
+
+        Args:
+            r: the S3Request
+
+        Note:
+            Can only update single records (no mass-update)
+            Called by S3CRUD.create / S3CRUD.update
+    """
+
+    xml = current.xml
+
+    table = r.target()[2]
+
+    record = r.record
+    resource = r.resource
+
+    # Handle components
+    if record and r.component:
+        resource = resource.components[r.component_name]
+        resource.load()
+        if len(resource) == 1:
+            record = resource.records()[0]
+        else:
+            record = None
+        r.vars.update({resource.fkey: r.record[resource.pkey]})
+    elif not record and r.component:
+        item = xml.json_message(False, 400, "Invalid Request!")
+        return {"item": item}
+
+    # Check for update
+    if record and xml.UID in table.fields:
+        r.vars.update({xml.UID: xml.export_uid(record[xml.UID])})
+
+    # Build tree
+    element = etree.Element(xml.TAG.resource)
+    element.set(xml.ATTRIBUTE.name, resource.tablename)
+    for var in r.vars:
+        if var.find(".") != -1:
+            continue
+        elif var in table.fields:
+            field = table[var]
+            value = s3_str(r.vars[var])
+            if var in xml.FIELDS_TO_ATTRIBUTES:
+                element.set(var, value)
+            else:
+                data = etree.Element(xml.TAG.data)
+                data.set(xml.ATTRIBUTE.field, var)
+                if field.type == "upload":
+                    data.set(xml.ATTRIBUTE.filename, value)
+                else:
+                    data.text = value
+                element.append(data)
+    tree = xml.tree([element], domain=xml.domain)
+
+    # Import data
+    result = Storage(committed=False)
+    def log(item):
+        result["item"] = item
+    resource.configure(oncommit_import_item = log)
+    try:
+        success = resource.import_xml(tree)
+    except SyntaxError:
+        pass
+
+    # Check result
+    if result.item:
+        result = result.item
+
+    # Build response
+    if success and result.committed:
+        r.id = result.id
+        method = result.method
+        if method == result.METHOD.CREATE:
+            item = xml.json_message(True, 201, "Created as %s?%s.id=%s" %
+                    (str(r.url(method = "",
+                               representation = "html",
+                               vars = {},
+                              )
+                        ),
+                     r.name, result.id)
+                    )
+        else:
+            item = xml.json_message(True, 200, "Record updated")
+    else:
+        item = xml.json_message(False, 403,
+                                "Could not create/update record: %s" %
+                                    resource.error or xml.error,
+                                tree = xml.tree2json(tree),
+                                )
+
+    return {"item": item}
 
 # END =========================================================================

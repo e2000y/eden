@@ -1542,7 +1542,7 @@ def config(settings):
 
             person_id = r.component_id
 
-            class REPLACE_TEXT(object):
+            class REPLACE_TEXT:
                 def __call__(self, value):
                     value = "Client going to: %s" % value
                     return (value, None)
@@ -1974,12 +1974,12 @@ def config(settings):
             if r.component_name == "human_resource_site":
 
                 #from gluon import URL
-                from s3 import s3_str#, S3CRUD
+                from s3 import s3_str, s3_action_buttons
 
                 shelter_id = r.id
 
                 # Normal Action Buttons
-                S3CRUD.action_buttons(r,
+                s3_action_buttons(r,
                                       read_url = URL(c = "cr",
                                                      f = "shelter",
                                                      args = [shelter_id,
@@ -2015,20 +2015,20 @@ def config(settings):
             elif r.component_name == "client":
 
                 #from gluon import URL
-                from s3 import s3_str#, S3CRUD
+                from s3 import s3_str, s3_action_buttons
 
                 # Normal Action Buttons
-                S3CRUD.action_buttons(r,
-                                      read_url = URL(c = "pr",
-                                                     f = "person",
-                                                     args = "[id]",
-                                                     ),
-                                      update_url = URL(c = "pr",
-                                                       f = "person",
-                                                       args = "[id]",
-                                                       ),
-                                      deletable = False,
-                                      )
+                s3_action_buttons(r,
+                                  read_url = URL(c = "pr",
+                                                 f = "person",
+                                                 args = "[id]",
+                                                 ),
+                                  update_url = URL(c = "pr",
+                                                   f = "person",
+                                                   args = "[id]",
+                                                   ),
+                                  deletable = False,
+                                  )
 
                 # Custom Action Buttons
                 s3.actions += [{"label": s3_str(T("Check-Out")),
@@ -2697,11 +2697,12 @@ def config(settings):
             cannot be expressed as components due to conflict between the master
             pr_person & the NoK pr_person
 
-            @param records: list of selected data
-            @param rfields: list of S3ResourceFields in the records
-            @param represent: records contain represented data
-            @param as_rows: records are bare Rows rather than extracted
-                            Storage
+            Args:
+                records: list of selected data
+                rfields: list of S3ResourceFields in the records
+                represent: records contain represented data
+                as_rows: records are bare Rows rather than extracted
+                         Storage
         """
 
         db = current.db
@@ -3523,20 +3524,20 @@ def config(settings):
                 s3.action_methods = action_methods
 
                 from gluon import URL
-                #from s3 import s3_str#, S3CRUD
+                from s3 import s3_action_buttons#, s3_str
 
                 # Normal Action Buttons
-                S3CRUD.action_buttons(r,
-                                      read_url = URL(c = "pr",
-                                                     f = "person",
-                                                     args = ["[id]"],
-                                                     ),
-                                      update_url = URL(c = "pr",
-                                                       f = "person",
-                                                       args = ["[id]"],
-                                                       ),
-                                      deletable = False,
-                                      )
+                s3_action_buttons(r,
+                                  read_url = URL(c = "pr",
+                                                 f = "person",
+                                                 args = ["[id]"],
+                                                 ),
+                                  update_url = URL(c = "pr",
+                                                   f = "person",
+                                                   args = ["[id]"],
+                                                   ),
+                                  deletable = False,
+                                  )
 
             return output
         s3.postp = postp
@@ -3562,9 +3563,11 @@ class cr_ShelterReportRepresent(S3ReportRepresent):
         """
             Represent record_ids (custom)
 
-            @param record_ids: shelter record IDs
+            Args:
+                record_ids: shelter record IDs
 
-            @returns: a JSON-serializable dict {recordID: representation}
+            Returns:
+                JSON-serializable dict {recordID: representation}
         """
 
         db = current.db
@@ -3606,12 +3609,14 @@ class pr_Household(S3CRUD):
         """
             Entry point for the REST interface
 
-            @param r: the S3Request
-            @param method: the method established by the REST interface
-            @param widget_id: widget ID
-            @param attr: dict of parameters for the method handler
+            Args:
+                r: the S3Request
+                method: the method established by the REST interface
+                widget_id: widget ID
+                attr: dict of parameters for the method handler
 
-            @return: output object to send to the view
+            Returns:
+                output object to send to the view
         """
 
         # Environment of the request

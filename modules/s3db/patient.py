@@ -236,7 +236,7 @@ class PatientModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
 # =============================================================================
 class patient_PatientRepresent(S3Represent):
@@ -248,8 +248,9 @@ class patient_PatientRepresent(S3Represent):
         """
             Custom lookup method for Patient names
 
-            @param key: Key for patient table
-            @param values: Patient IDs
+            Args:
+                key: Key for patient table
+                values: Patient IDs
         """
 
         table = self.table
@@ -280,7 +281,8 @@ class patient_PatientRepresent(S3Represent):
         """
             Represent a row for a particular patient
 
-            @param row: patient_patient Row
+            Args:
+                row: patient_patient Row
         """
 
         try:

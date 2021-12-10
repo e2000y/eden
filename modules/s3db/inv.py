@@ -40,6 +40,8 @@ __all__ = ("WarehouseModel",
            "InventoryRequisitionModel",
            "InventoryRequisitionApproverModel",
            "InventoryRequisitionItemModel",
+           "InventoryRequisitionItemInventoryModel",
+           "InventoryRequisitionItemCategoryModel",
            "InventoryRequisitionProjectModel",
            "InventoryRequisitionRecurringModel",
            "InventoryRequisitionShipmentModel",
@@ -50,6 +52,7 @@ __all__ = ("WarehouseModel",
            "inv_adj_rheader",
            "inv_commit_send",
            #"inv_gift_certificate",
+           #"inv_item_label",
            "inv_item_total_weight",
            "inv_item_total_volume",
            #"inv_package_labels",
@@ -62,7 +65,7 @@ __all__ = ("WarehouseModel",
            "inv_recv_form",
            "inv_recv_rheader",
            #"inv_recv_process",
-           "inv_remove",
+           #"inv_remove",
            "inv_req_add_from_template", # Exported for Tasks
            #"inv_req_approve",
            "inv_req_approvers",
@@ -75,13 +78,15 @@ __all__ = ("WarehouseModel",
            #"inv_req_is_approver",
            "inv_req_item_inv_item",
            "inv_req_item_order",
+           #"inv_req_item_postprocess",
            #"inv_req_marker_fn",
            "inv_req_match",
+           #"inv_req_pick_list",
            "inv_req_rheader",
            #"inv_req_send",
            "inv_req_tabs",
            #"inv_req_update_status",
-           #"inv_rfooter",
+           "inv_rfooter",
            "inv_rheader",
            #"inv_send_add_items_of_shipment_type",
            "inv_send_controller",
@@ -89,6 +94,7 @@ __all__ = ("WarehouseModel",
            #"inv_send_form",
            #"inv_send_item_postprocess",
            #"inv_send_onaccept",
+           "inv_send_postprocess",
            #"inv_send_process",
            #"inv_send_received",
            #"inv_send_return",
@@ -106,10 +112,12 @@ __all__ = ("WarehouseModel",
            "inv_InvItemRepresent",
            #"inv_PackageRepresent",
            #"inv_RecvRepresent",
+           #"inv_RecvWizard",
            #"inv_ReqCheckMethod",
            "inv_ReqItemRepresent",
            "inv_ReqRefRepresent",
            #"inv_SendRepresent",
+           #"inv_SendWizard",
            #"inv_TrackItemRepresent",
            )
 
@@ -123,9 +131,6 @@ from gluon.storage import Storage
 from ..s3 import *
 from s3layouts import S3PopupLink
 from .supply import SupplyItemPackQuantity
-
-# Compact JSON encoding
-SEPARATORS = (",", ":")
 
 # Dependency list for translate-module
 depends = ["supply"]
@@ -232,7 +237,6 @@ inv_tracking_status = {"UNKNOWN"    : TRACK_STATUS_UNKNOWN,
 def inv_itn_field(**attr):
     label = current.deployment_settings.get_inv_itn_label()
     if label:
-        NONE = current.messages["NONE"]
         return S3ReusableField("item_source_no", length=16,
                                label = label,
                                represent = lambda v: v or NONE,
@@ -261,9 +265,7 @@ class WarehouseModel(S3Model):
         db = current.db
         auth = current.auth
 
-        messages = current.messages
-        NONE = messages["NONE"]
-        OBSOLETE = messages.OBSOLETE
+        OBSOLETE = current.messages.OBSOLETE
 
         configure = self.configure
         crud_strings = current.response.s3.crud_strings
@@ -532,7 +534,7 @@ class WarehouseModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -566,9 +568,6 @@ class InventoryModel(S3Model):
         define_table = self.define_table
 
         organisation_id = self.org_organisation_id
-
-        #messages = current.messages
-        NONE = current.messages["NONE"]
 
         settings = current.deployment_settings
         direct_stock_edits = settings.get_inv_direct_stock_edits()
@@ -946,7 +945,8 @@ $.filterOptionsS3({
         """
             Update detection for inv_inv_item
 
-            @param item: the S3ImportItem
+            Args:
+                item: the S3ImportItem
         """
 
         table = item.table
@@ -1105,7 +1105,7 @@ $.filterOptionsS3({
             value = row.quantity * row.pack_value
         except (AttributeError, TypeError):
             # not available
-            return current.messages["NONE"]
+            return NONE
         else:
             return round(value, 2)
 
@@ -1568,10 +1568,12 @@ class InventoryAdjustModel(S3Model):
 
             for row in bins:
                 bin_record = row.inv_inv_item_bin
-                adj_bin_table.insert(adj_item_id = adj_item_id,
-                                     layout_id = bin_record.layout_id,
-                                     quantity = bin_record.quantity,
-                                     )
+                layout_id = bin_record.layout_id
+                if layout_id:
+                    adj_bin_table.insert(adj_item_id = adj_item_id,
+                                         layout_id = layout_id,
+                                         quantity = bin_record.quantity,
+                                         )
 
 # =============================================================================
 class InventoryCommitModel(S3Model):
@@ -1913,7 +1915,7 @@ class InventoryCommitItemModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1991,7 +1993,7 @@ class InventoryKittingModel(S3Model):
     """
         A module to manage the Kitting of Inventory Items
 
-        @ToDo: Update to multiple Bins per Inv Item
+        @ToDo: Do the Kitting on 'process' & allow editing of bins before this
     """
 
     names = ("inv_kitting",
@@ -2045,9 +2047,11 @@ class InventoryKittingModel(S3Model):
                                                   filter_opts = (True,),
                                                   sort = True
                                                   ),
-                             widget = S3AutocompleteWidget("supply", "item",
-                                                           filter = "item.kit=1",
-                                                           ),
+                             # Not likely to be so many kits in the Catalog to need this:
+                             #widget = S3AutocompleteWidget("supply", "item",
+                             #                              filter = "item.kit=1",
+                             #                              ),
+                             widget = None,
                              # Needs better workflow as no way to add the Kit Items
                              #comment = S3PopupLink(c = "supply",
                              #                      f = "item",
@@ -2073,7 +2077,7 @@ class InventoryKittingModel(S3Model):
                                                                ),
                                            ),
                             ),
-                     self.inv_req_ref(writable = True),
+                     #self.inv_req_ref(writable = True),
                      self.pr_person_id("repacked_id",
                                        default = auth.s3_logged_in_person(),
                                        label = T("Repacked By"),
@@ -2111,7 +2115,7 @@ class InventoryKittingModel(S3Model):
                                     ),
                   create_onaccept = self.inv_kitting_onaccept,
                   list_fields = ["site_id",
-                                 "req_ref",
+                                 #"req_ref",
                                  "quantity",
                                  "date",
                                  "repacked_id",
@@ -2130,11 +2134,11 @@ class InventoryKittingModel(S3Model):
                            readable = False,
                            writable = False,
                            ),
-                     # @ToDo: Why duplicate this here?
-                     Field("site_id", "reference org_site",
-                           readable = False,
-                           writable = False,
-                           ),
+                     # Why duplicate this here?
+                     #Field("site_id", "reference org_site",
+                     #      readable = False,
+                     #      writable = False,
+                     #      ),
                      self.inv_item_id(ondelete = "RESTRICT",
                                       readable = False,
                                       writable = False,
@@ -2153,7 +2157,7 @@ class InventoryKittingModel(S3Model):
                      #s3_comments(),
                      *s3_meta_fields())
 
-        # Resource configuration
+        # This is a read-only Pick List
         configure(tablename,
                   deletable = False,
                   editable = False,
@@ -2163,7 +2167,7 @@ class InventoryKittingModel(S3Model):
         #----------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2173,65 +2177,64 @@ class InventoryKittingModel(S3Model):
         """
 
         form_vars = form.vars
+
         item_id = form_vars.item_id
-        item_pack_id = form_vars.item_pack_id
         quantity = form_vars.quantity
         site_id = form_vars.site_id
 
         db = current.db
         s3db = current.s3db
-        ktable = s3db.supply_kit_item
-        ptable = db.supply_item_pack
-        iitable = s3db.inv_inv_item
 
         # Get contents of this kit
-        query = (ktable.parent_item_id == item_id)
-        rows = db(query).select(ktable.item_id,
-                                ktable.quantity,
-                                ktable.item_pack_id,
-                                )
+        ktable = s3db.supply_kit_item
+        kit_items = db(ktable.parent_item_id == item_id).select(ktable.item_id,
+                                                                ktable.quantity,
+                                                                ktable.item_pack_id,
+                                                                )
+        item_ids = [row.item_id for row in kit_items]
 
+        # Lookup the Stock of these component items
+        iitable = s3db.inv_inv_item
+        ii_expiry_field = iitable.expiry_date
+
+        # Filter out Stock which is in Bad condition or Expired
+        query = (iitable.site_id == site_id) & \
+                (iitable.item_id.belongs(item_ids)) & \
+                (iitable.quantity > 0) & \
+                ((ii_expiry_field >= current.request.utcnow) | ((ii_expiry_field == None))) & \
+                (iitable.status == 0)
+
+        wh_items = db(query).select(iitable.item_id,
+                                    iitable.quantity,
+                                    iitable.item_pack_id,
+                                    )
+
+        # Lookup Packs
+        item_pack_id = int(form_vars.item_pack_id)
+        item_pack_ids = [row.item_pack_id for row in kit_items] + [row.item_pack_id for row in wh_items]
+        item_pack_ids.append(item_pack_id)
+
+        ptable = db.supply_item_pack
+        packs = db(ptable.id.belongs(set(item_pack_ids))).select(ptable.id,
+                                                                 ptable.quantity,
+                                                                 )
+        packs = {p.id: p.quantity for p in packs}
+        
         # How many kits are we building?
-        p_id_field = ptable.id
-        p_qty_field = ptable.quantity
-        pack_qty = db(p_id_field == item_pack_id).select(p_qty_field,
-                                                         limitby = (0, 1),
-                                                         ).first().quantity
-        quantity = quantity * pack_qty
+        quantity = quantity * packs[item_pack_id]
 
         max_kits = None
 
-        ii_pack_field = iitable.item_pack_id
-        ii_qty_field = iitable.quantity
-        ii_expiry_field = iitable.expiry_date
-
-        # Base Query: The Facility at which we're building these kits
-        # Filter out Stock which is in Bad condition or Expired
-        squery = (iitable.site_id == site_id) & \
-                 (iitable.deleted == False) & \
-                 ((ii_expiry_field >= current.request.now) | ((ii_expiry_field == None))) & \
-                 (iitable.status == 0)
-
         # Loop through each supply_item in the kit
-        for record in rows:
+        for kit_item in kit_items:
             # How much of this supply_item is required per kit?
-            pack_qty = db(p_id_field == record.item_pack_id).select(p_qty_field,
-                                                                    limitby = (0, 1),
-                                                                    ).first().quantity
-            one_kit = record.quantity * pack_qty
+            one_kit = kit_item.quantity * packs[kit_item.item_pack_id]
 
             # How much of this supply_item do we have in stock?
             stock_amount = 0
-            query = squery & (iitable.item_id == record.item_id)
-            wh_items = db(query).select(#iitable.id,
-                                        ii_qty_field,
-                                        ii_pack_field,
-                                        )
-            for wh_item in wh_items:
-                pack_qty = db(p_id_field == wh_item.item_pack_id).select(p_qty_field,
-                                                                         limitby = (0, 1),
-                                                                         ).first().quantity
-                amount = wh_item.quantity * pack_qty
+            rows = wh_items.find(lambda row: row.item_id == kit_item.item_id)
+            for wh_item in rows:
+                amount = wh_item.quantity * packs[wh_item.item_pack_id]
                 stock_amount += amount
 
             # How many Kits can we create based on this item?
@@ -2243,8 +2246,6 @@ class InventoryKittingModel(S3Model):
                 # Reduce the total possible if less than for previous items
                 if kits < max_kits:
                     max_kits = kits
-
-        # @ToDo: Save the results for the onaccept?
 
         if max_kits is None:
             form.errors.item_id = current.T("This kit hasn't got any Kit Items defined")
@@ -2260,46 +2261,33 @@ class InventoryKittingModel(S3Model):
                 reduce the components & increase the kits
             - picks items which have an earlier expiry_date where they have them,
               earlier purchase_data otherwise
+            - optimise to minimise the number of Bins remaining for an Item
             Provide a pick list to ensure that the right stock items are used
             to build the kits: inv_kitting_item
         """
 
         form_vars = form.vars
+
         kitting_id = form_vars.id
         item_id = form_vars.item_id
-        item_pack_id = form_vars.item_pack_id
-        quantity = form_vars.quantity
         site_id = form_vars.site_id
 
         db = current.db
         s3db = current.s3db
-        ktable = s3db.supply_kit_item
-        ptable = db.supply_item_pack
-        iitable = s3db.inv_inv_item
-        insert = s3db.inv_kitting_item.insert
 
         # Get contents of this kit
-        query = (ktable.parent_item_id == item_id)
-        rows = db(query).select(ktable.item_id,
-                                ktable.quantity,
-                                ktable.item_pack_id,
-                                )
+        ktable = s3db.supply_kit_item
+        kit_items = db(ktable.parent_item_id == item_id).select(ktable.item_id,
+                                                                ktable.quantity,
+                                                                ktable.item_pack_id,
+                                                                )
+        item_ids = [row.item_id for row in kit_items]
 
-        # How many kits are we building?
-        p_id_field = ptable.id
-        p_qty_field = ptable.quantity
-        pack_qty = db(p_id_field == item_pack_id).select(p_qty_field,
-                                                         limitby = (0, 1),
-                                                         ).first().quantity
-        quantity = quantity * pack_qty
-
+        # Lookup the Stock of these component items
+        iitable = s3db.inv_inv_item
         ii_id_field = iitable.id
-        ii_bin_field = iitable.layout_id
-        ii_pack_field = iitable.item_pack_id
-        ii_qty_field = iitable.quantity
         ii_expiry_field = iitable.expiry_date
         ii_purchase_field = iitable.purchase_date
-        ii_src_field = iitable.item_source_no
 
         # Match Stock based on oldest expiry date or purchase date
         orderby = ii_expiry_field | ii_purchase_field
@@ -2307,83 +2295,190 @@ class InventoryKittingModel(S3Model):
         # We set expiry date of the kit to the oldest expiry date of the components
         expiry_date = None
 
-        # Base Query: The Facility at which we're building these kits
+        # Include Bins
+        ibtable = s3db.inv_inv_item_bin
+        ib_id_field = ibtable.id
+        left = ibtable.on(ibtable.inv_item_id == ii_id_field)
+
         # Filter out Stock which is in Bad condition or Expired
-        squery = (iitable.site_id == site_id) & \
-                 (iitable.deleted == False) & \
-                 ((ii_expiry_field >= current.request.now) | ((ii_expiry_field == None))) & \
-                 (iitable.status == 0)
+        query = (iitable.site_id == site_id) & \
+                (iitable.item_id.belongs(item_ids)) & \
+                (iitable.quantity > 0) & \
+                ((ii_expiry_field >= current.request.utcnow) | ((ii_expiry_field == None))) & \
+                (iitable.status == 0)
+
+        wh_items = db(query).select(ii_id_field,
+                                    iitable.quantity,
+                                    iitable.item_id,
+                                    iitable.item_pack_id,
+                                    iitable.item_source_no,
+                                    ii_expiry_field,
+                                    ii_purchase_field, # Included just for orderby on Postgres
+                                    ib_id_field,
+                                    ibtable.layout_id,
+                                    ibtable.quantity,
+                                    left = left,
+                                    orderby = orderby,
+                                    )
+
+        # Lookup Packs
+        item_pack_id = int(form_vars.item_pack_id)
+        pack_ids = [row.item_pack_id for row in kit_items] + [row["inv_inv_item.item_pack_id"] for row in wh_items]
+        pack_ids.append(item_pack_id)
+
+        ptable = db.supply_item_pack
+        packs = db(ptable.id.belongs(set(pack_ids))).select(ptable.id,
+                                                            ptable.quantity,
+                                                            )
+        packs = {p.id: p.quantity for p in packs}
+
+        # How many kits are we building?
+        quantity = form_vars.quantity * packs[item_pack_id]
 
         # Loop through each supply_item in the kit
-        for record in rows:
+        from operator import itemgetter
+        insert = s3db.inv_kitting_item.insert
+        inv_item_ids = []
+        append = inv_item_ids.append
+        for kit_item in kit_items:
             # How much of this supply_item is required per kit?
-            pack_qty = db(p_id_field == record.item_pack_id).select(p_qty_field,
-                                                                    limitby = (0, 1),
-                                                                    ).first().quantity
-            one_kit = record.quantity * pack_qty
+            one_kit = kit_item.quantity * packs[kit_item.item_pack_id]
 
             # How much is required for all Kits?
             required = one_kit * quantity
 
-            # List of what we have available in stock
-            ritem_id = record.item_id
-            query = squery & (iitable.item_id == ritem_id)
+            # What stock do we have for this item?
+            ritem_id = kit_item.item_id
+            rows = wh_items.find(lambda row: row["inv_inv_item.item_id"] == ritem_id)
 
-            wh_items = db(query).select(ii_id_field,
-                                        ii_qty_field,
-                                        ii_expiry_field,
-                                        ii_purchase_field, # Included just for orderby on Postgres
-                                        ii_pack_field,
-                                        ii_bin_field,
-                                        ii_src_field,
-                                        orderby = orderby,
-                                        )
-            for wh_item in wh_items:
-                # Get the pack_qty
-                pack_qty = db(p_id_field == wh_item.item_pack_id).select(p_qty_field,
-                                                                         limitby = (0, 1),
-                                                                         ).first().quantity
-                # How many of this item can we use for these kits?
-                amount = wh_item.quantity * pack_qty
-                # How many of this item will we use for the kits?
-                if amount > required:
-                    # Use only what is required
-                    amount = required
-                #else:
-                #    # We use all
+            # Group by inv_item_id
+            inv_items = {}
+            for row in rows:
+                inv_item_id = row["inv_inv_item.id"]
+                if inv_item_id in inv_items:
+                    inv_items[inv_item_id].append(row)
+                else:
+                    inv_items[inv_item_id] = [row]
 
-                if wh_item.expiry_date:
+            for inv_item_id in inv_items:
+                append(inv_item_id)
+                binned_quantity = 0
+                bins = inv_items[inv_item_id]
+                inv_item = bins[0].inv_inv_item
+
+                if inv_item.expiry_date:
                     if expiry_date is None:
                         # No expiry date set so this item starts the list
-                        expiry_date = wh_item.expiry_date
+                        expiry_date = inv_item.expiry_date
                     else:
                         # Shorten the expiry date if less than for previous items
-                        if wh_item.expiry_date < expiry_date:
-                            expiry_date = wh_item.expiry_date
+                        if inv_item.expiry_date < expiry_date:
+                            expiry_date = inv_item.expiry_date
 
-                # @ToDo: Record which components are to be used for the kits
-                # Store results in a table?
+                # How many of this item can we use for these kits?
+                inv_quantity = inv_item.quantity
+                pack_quantity = packs[inv_item.item_pack_id]
+                inv_amount = inv_quantity * pack_quantity
+                # How many of this item will we use for the kits?
+                if inv_amount > required:
+                    # Use only what is required
+                    inv_amount = required
+                    inv_quantity -= (inv_amount / pack_quantity)
+                else:
+                    # We use all
+                    inv_quantity = 0
 
-                # Remove from stock
-                inv_remove(wh_item, amount)
+                if len(bins) > 1:
+                    # Multiple Bins
+                    binned_quantity = 0
+                    inv_bins = [row.inv_inv_item_bin for row in bins]
+                    # Optimise to minimise the number of Bins remaining for an Item
+                    inv_bins.sort(key = itemgetter("quantity"))
+                    for inv_bin in inv_bins:
+                        bin_quantity = inv_bin.quantity
+                        binned_quantity += bin_quantity
+                        bin_amount = bin_quantity * pack_quantity
+                        # How many from this bin will we use for the kits?
+                        if bin_amount > required:
+                            # Use only what is required
+                            bin_amount = required
+                            bin_quantity -= (bin_amount / pack_quantity)
+                        else:
+                            # We use all
+                            bin_quantity = 0
 
-                # Add to Pick List
-                new_record = {"site_id": site_id,
-                              "kitting_id": kitting_id,
-                              "item_id": ritem_id,
-                              "item_pack_id": wh_item.item_pack_id,
-                              "item_source_no": wh_item.item_source_no,
-                              "quantity": amount,
-                              "inv_item_id": wh_item.id,
-                              "layout_id": wh_item.layout_id,
-                              }
-                insert(**new_record)
+                        # Update the Bin
+                        db(ib_id_field == inv_bin.id).update(quantity = bin_quantity)
 
-                # Update how much is still required
-                required -= amount
+                        # Add to Pick List
+                        insert(kitting_id = kitting_id,
+                               item_id = ritem_id,
+                               item_pack_id = inv_item.item_pack_id,
+                               item_source_no = inv_item.item_source_no,
+                               quantity = bin_amount,
+                               inv_item_id = inv_item_id,
+                               layout_id = inv_bin.layout_id,
+                               )
+
+                        # Update how much is still required
+                        required -= bin_amount
+
+                        if not required:
+                            # No more required: skip remaining bins
+                            break
+
+                    if required and (binned_quantity < inv_quantity):
+                        # We still have some unbinned to take from
+                        unbinned_quantity = inv_quantity - binned_quantity
+                        unbinned_amount = unbinned_quantity * pack_quantity
+                        # How many of this will we use for the kits?
+                        if unbinned_amount > required:
+                            # Use only what is required
+                            unbinned_amount = required
+                        #else:
+                        #    # We use all
+
+                        # Add to Pick List
+                        insert(kitting_id = kitting_id,
+                               item_id = ritem_id,
+                               item_pack_id = inv_item.item_pack_id,
+                               item_source_no = inv_item.item_source_no,
+                               quantity = unbinned_amount,
+                               inv_item_id = inv_item_id,
+                               #layout_id = None,
+                               )
+
+                        # Update how much is still required
+                        required -= unbinned_amount
+                    
+                else:
+                    inv_bin = bins[0].inv_inv_item_bin
+                    layout_id = inv_bin.layout_id
+                    if layout_id:
+                        # Single Bin
+                        # Update the Bin
+                        db(ib_id_field == inv_bin.id).update(quantity = inv_quantity)
+                    #else:
+                    #    # Unbinned
+
+                    # Add to Pick List
+                    insert(kitting_id = kitting_id,
+                           item_id = ritem_id,
+                           item_pack_id = inv_item.item_pack_id,
+                           item_source_no = inv_item.item_source_no,
+                           quantity = inv_amount,
+                           inv_item_id = inv_item_id,
+                           layout_id = layout_id,
+                           )
+
+                    # Update how much is still required
+                    required -= inv_amount
+
+                # Update Inv Quantity
+                db(ii_id_field == inv_item_id).update(quantity = inv_quantity)
 
                 if not required:
-                    # No more required: move on to the next component
+                    # No more required: move on to the next kit_item
                     break
 
         # Add Kits to Stock
@@ -2395,7 +2490,14 @@ class InventoryKittingModel(S3Model):
                                 quantity = quantity,
                                 expiry_date = expiry_date,
                                 )
+        # supply_item_entity
         s3db.update_super(iitable, {"id": new_id})
+
+        if current.deployment_settings.get_inv_stock_cards():
+            append(new_id)
+            inv_stock_card_update(inv_item_ids,
+                                  comments = "Kitting",
+                                  )
 
 # =============================================================================
 class InventoryMinimumModel(S3Model):
@@ -2469,7 +2571,7 @@ class InventoryMinimumModel(S3Model):
            msg_list_empty = T("No Minimum Stock Levels currently registered"),
            )
 
-        return {}
+        return None
 
 # =============================================================================
 class InventoryOrderItemModel(S3Model):
@@ -2484,7 +2586,6 @@ class InventoryOrderItemModel(S3Model):
     def model(self):
 
         T = current.T
-        NONE = current.messages["NONE"]
 
         # -----------------------------------------------------------------
         # Request Item Ordering
@@ -2541,7 +2642,7 @@ class InventoryOrderItemModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
 # =============================================================================
 class InventoryPackageModel(S3Model):
@@ -2863,7 +2964,7 @@ class InventoryPackageShipmentModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2979,7 +3080,7 @@ class InventoryPackageShipmentModel(S3Model):
 
         len_items = len(rows)
         if len_items == 0:
-            return current.messages["NONE"]
+            return NONE
         elif len_items == 1:
             return rows.first().name
         else:
@@ -3015,7 +3116,7 @@ class InventoryPackageShipmentModel(S3Model):
             volume = inv_send_package.volume if inv_send_package else None
 
         if volume is None:
-            return current.messages["NONE"]
+            return NONE
 
         volume = round(volume, 3)
 
@@ -3085,7 +3186,7 @@ class InventoryPackageShipmentModel(S3Model):
             weight = inv_send_package.weight if inv_send_package else None
 
         if weight is None:
-            return current.messages["NONE"]
+            return NONE
 
         weight = round(weight, 3)
 
@@ -3137,6 +3238,9 @@ class InventoryRequisitionModel(S3Model):
         - stands separate from the Req module
 
         In the future, this may be used for fulfilling Inventory Requisitions raised via req_requisition
+
+        TODO
+            crud_form & list_fields for settings.inv.req_project
     """
 
     names = ("inv_req",
@@ -3153,7 +3257,6 @@ class InventoryRequisitionModel(S3Model):
         settings = current.deployment_settings
 
         messages = current.messages
-        NONE = messages["NONE"]
         UNKNOWN_OPT = messages.UNKNOWN_OPT
         AUTOCOMPLETE_HELP = messages.AUTOCOMPLETE_HELP
 
@@ -3170,7 +3273,6 @@ class InventoryRequisitionModel(S3Model):
         ask_security = settings.get_inv_req_ask_security()
         ask_transport = settings.get_inv_req_ask_transport()
         date_writable = settings.get_inv_req_date_writable()
-        multiple_req_items = settings.get_inv_multiple_req_items()
         recurring = settings.get_inv_req_recurring()
         req_status_writable = settings.get_inv_req_status_writable()
         requester_label = settings.get_inv_requester_label()
@@ -3265,7 +3367,7 @@ class InventoryRequisitionModel(S3Model):
                                      label = T("Requested For Facility"),
                                      readable = True,
                                      represent = self.org_site_represent,
-                                     updateable = True,
+                                     updateable = settings.get_inv_requester_site_updateable(),
                                      widget = site_widget,
                                      writable = True,
                                      ),
@@ -3492,11 +3594,12 @@ class InventoryRequisitionModel(S3Model):
                                                   options = req_status_opts,
                                                   cols = 3,
                                                   ))
-        filter_widgets.insert(position + 2,
-                              S3OptionsFilter("req_item.item_id$item_category_id",
-                                              label = T("Item Category"),
-                                              hidden = True,
-                                              ))
+        if settings.get_inv_req_filter_by_item_category():
+            filter_widgets.insert(position + 2,
+                                  S3OptionsFilter("req_item.item_id$item_category_id",
+                                                  label = T("Item Category"),
+                                                  hidden = True,
+                                                  ))
         if use_commit:
             filter_widgets.insert(position,
                                   S3OptionsFilter("commit_status",
@@ -3593,7 +3696,7 @@ class InventoryRequisitionModel(S3Model):
                                       },
                        # Requested Items
                        inv_req_item = {"joinby": "req_id",
-                                       "multiple": multiple_req_items,
+                                       "multiple": settings.get_inv_req_multiple_items(),
                                        },
                        # Commitment
                        inv_commit = "req_id",
@@ -3836,7 +3939,8 @@ class InventoryRequisitionModel(S3Model):
             Remove any scheduled tasks when deleting a recurring request
             template
 
-            @param row: the deleted inv_req Row
+            Args:
+                row: the deleted inv_req Row
         """
 
         db = current.db
@@ -3933,7 +4037,7 @@ class InventoryRequisitionApproverModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
 # =============================================================================
 class InventoryRequisitionItemModel(S3Model):
@@ -3944,7 +4048,6 @@ class InventoryRequisitionItemModel(S3Model):
     names = ("inv_req_item",
              "inv_req_item_id",
              "inv_req_item_represent",
-             "inv_req_item_category",
              )
 
     def model(self):
@@ -3958,72 +4061,80 @@ class InventoryRequisitionItemModel(S3Model):
         show_qty_transit = settings.get_inv_req_show_quantity_transit()
         track_pack_values = settings.get_inv_req_pack_values()
 
-        define_table = self.define_table
-        req_id = self.inv_req_id
+        float_represent = IS_FLOAT_AMOUNT.represent
 
         # -----------------------------------------------------------------
         # Request Items
         #
         tablename = "inv_req_item"
-        define_table(tablename,
-                     req_id(empty = False),
-                     self.supply_item_entity_id(),
-                     self.supply_item_id(),
-                     self.supply_item_pack_id(),
-                     Field("quantity", "double", notnull=True,
-                           label = T("Quantity"),
-                           represent = lambda v: \
-                                IS_FLOAT_AMOUNT.represent(v, precision = 2),
-                           requires = IS_FLOAT_AMOUNT(minimum = 1.0),
-                           ),
-                     Field("pack_value", "double",
-                           label = T("Estimated Value per Pack"),
-                           readable = track_pack_values,
-                           writable = track_pack_values,
-                           ),
-                     # @ToDo: Move this into a Currency Widget for the pack_value field
-                     s3_currency(readable = track_pack_values,
-                                 writable = track_pack_values,
-                                 ),
-                     # Requested from:
-                     self.org_site_id(),
-                     Field("quantity_commit", "double",
-                           default = 0,
-                           label = T("Quantity Committed"),
-                           represent = self.req_qnty_commit_represent,
-                           requires = IS_FLOAT_AMOUNT(minimum = 0.0),
-                           readable = use_commit,
-                           writable = use_commit and quantities_writable,
-                           ),
-                     Field("quantity_transit", "double",
-                           default = 0,
-                           # FB: I think this is Qty Shipped not remaining in transit
-                           # @ToDo: Distinguish between:
-                           #        items lost in transit (shipped but not recvd and unlikely to ever be, so still required)
-                           #        items still in transit (shipped but not yet recvd but still expected, so no longer need sending)
-                           #label = T("Quantity Shipped"),
-                           label = T("Quantity in Transit"),
-                           represent = self.req_qnty_transit_represent,
-                           requires = IS_FLOAT_AMOUNT(minimum = 0.0),
-                           readable = show_qty_transit,
-                           writable = show_qty_transit and quantities_writable,
-                           ),
-                     Field("quantity_fulfil", "double",
-                           label = T("Quantity Fulfilled"),
-                           represent = self.req_qnty_fulfil_represent,
-                           default = 0,
-                           requires = IS_FLOAT_AMOUNT(minimum = 0.0),
-                           writable = quantities_writable,
-                           ),
-                     Field.Method("pack_quantity",
-                                  SupplyItemPackQuantity(tablename)
-                                  ),
-                     s3_comments(),
-                     *s3_meta_fields(),
-                     on_define = lambda table: \
-                        [table.site_id.set_attributes(label = T("Requested From")),
-                         ]
-                     )
+        self.define_table(tablename,
+                          self.inv_req_id(empty = False),
+                          self.supply_item_entity_id(),
+                          self.supply_item_id(),
+                          self.supply_item_pack_id(),
+                          Field("quantity", "double", notnull=True,
+                                label = T("Quantity"),
+                                represent = lambda v: \
+                                    float_represent(v, precision = 2),
+                                requires = IS_FLOAT_AMOUNT(minimum = 1.0),
+                                ),
+                          Field("pack_value", "double",
+                                label = T("Estimated Value per Pack"),
+                                readable = track_pack_values,
+                                writable = track_pack_values,
+                                ),
+                          # @ToDo: Move this into a Currency Widget for the pack_value field
+                          s3_currency(readable = track_pack_values,
+                                      writable = track_pack_values,
+                                      ),
+                          # Requested from:
+                          self.org_site_id(),
+                          Field("quantity_commit", "double",
+                                default = 0,
+                                label = T("Quantity Committed"),
+                                represent = self.req_qnty_commit_represent,
+                                requires = IS_FLOAT_AMOUNT(minimum = 0.0),
+                                readable = use_commit,
+                                writable = use_commit and quantities_writable,
+                                ),
+                          Field("quantity_reserved", "double",
+                                default = 0,
+                                label = T("Quantity Reserved"),
+                                represent = float_represent,
+                                requires = IS_FLOAT_AMOUNT(minimum = 0.0),
+                                # Gets enabled in the controller when settings.get_inv_req_reserve_items() and the Item has been Requested From
+                                readable = False,
+                                writable = False,
+                                ),
+                          Field("quantity_transit", "double",
+                                default = 0,
+                                # FB: I think this is Qty Shipped not remaining in transit
+                                # @ToDo: Distinguish between:
+                                #        items lost in transit (shipped but not recvd and unlikely to ever be, so still required)
+                                #        items still in transit (shipped but not yet recvd but still expected, so no longer need sending)
+                                #label = T("Quantity Shipped"),
+                                label = T("Quantity in Transit"),
+                                represent = self.req_qnty_transit_represent,
+                                requires = IS_FLOAT_AMOUNT(minimum = 0.0),
+                                readable = show_qty_transit,
+                                writable = show_qty_transit and quantities_writable,
+                                ),
+                          Field("quantity_fulfil", "double",
+                                label = T("Quantity Fulfilled"),
+                                represent = self.req_qnty_fulfil_represent,
+                                default = 0,
+                                requires = IS_FLOAT_AMOUNT(minimum = 0.0),
+                                writable = quantities_writable,
+                                ),
+                          Field.Method("pack_quantity",
+                                       SupplyItemPackQuantity(tablename)
+                                       ),
+                          s3_comments(),
+                          *s3_meta_fields(),
+                          on_define = lambda table: \
+                            [table.site_id.set_attributes(label = T("Requested From")),
+                             ]
+                          )
 
         # CRUD strings
         current.response.s3.crud_strings[tablename] = Storage(
@@ -4105,15 +4216,20 @@ $.filterOptionsS3({
                              ),
             ]
 
+        if settings.get_inv_req_filter_by_item_category():
+            ondelete = self.req_item_ondelete
+        else:
+            ondelete = None
+
         self.configure(tablename,
                        create_next = create_next,
                        deduplicate = self.req_item_duplicate,
-                       deletable = settings.get_inv_multiple_req_items(),
+                       deletable = settings.get_inv_req_multiple_items(),
                        extra_fields = ["item_pack_id"],
                        filter_widgets = filter_widgets,
                        list_fields = list_fields,
                        onaccept = self.req_item_onaccept,
-                       ondelete = self.req_item_ondelete,
+                       ondelete = ondelete,
                        # @ToDo: default realm to that of the req_id
                        #realm_entity = self.req_item_realm_entity,
                        super_entity = "supply_item_entity",
@@ -4121,19 +4237,8 @@ $.filterOptionsS3({
 
         self.add_components(tablename,
                             inv_order_item = "req_item_id",
+                            inv_req_item_inv = "req_item_id",
                             )
-
-        # ---------------------------------------------------------------------
-        # Req <> Item Category link table
-        #
-        # - used to provide a search filter
-        # - populated onaccept/ondelete of req_item
-        #
-        tablename = "inv_req_item_category"
-        define_table(tablename,
-                     req_id(empty = False),
-                     self.supply_item_category_id(),
-                     *s3_meta_fields())
 
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
@@ -4160,6 +4265,8 @@ $.filterOptionsS3({
                   when an item is added or quantity changed
                 - add item category links for the request when adding an item
                   of a new item category
+
+            NB Calling update_realm_entity of the parent Req based on changed site_id is left to templates to do in custom onaccept (e.g. see RMS)
         """
 
         db = current.db
@@ -4184,23 +4291,25 @@ $.filterOptionsS3({
         # Update Request Status
         inv_req_update_status(req_id)
 
-        # Update req_item_category link table
-        item_id = form_vars.get("item_id")
-        citable = db.supply_catalog_item
-        cats = db(citable.item_id == item_id).select(citable.item_category_id)
-        rictable = db.inv_req_item_category
-        for cat in cats:
-            item_category_id = cat.item_category_id
-            query = (rictable.deleted == False) & \
-                    (rictable.req_id == req_id) & \
-                    (rictable.item_category_id == item_category_id)
-            exists = db(query).select(rictable.id,
-                                      limitby = (0, 1),
-                                      )
-            if not exists:
-                rictable.insert(req_id = req_id,
-                                item_category_id = item_category_id,
-                                )
+        if current.deployment_settings.get_inv_req_filter_by_item_category():
+            # Update inv_req_item_category link table
+            item_id = form_vars.get("item_id")
+            if item_id: # Field not present when coming from inv_req_from
+                citable = db.supply_catalog_item
+                cats = db(citable.item_id == item_id).select(citable.item_category_id)
+                rictable = current.s3db.inv_req_item_category
+                for cat in cats:
+                    item_category_id = cat.item_category_id
+                    query = (rictable.deleted == False) & \
+                            (rictable.req_id == req_id) & \
+                            (rictable.item_category_id == item_category_id)
+                    exists = db(query).select(rictable.id,
+                                              limitby = (0, 1),
+                                              )
+                    if not exists:
+                        rictable.insert(req_id = req_id,
+                                        item_category_id = item_category_id,
+                                        )
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -4210,7 +4319,7 @@ $.filterOptionsS3({
                 - delete item category links from the requisition when the last
                   item of a category is removed from the requisition
 
-            FIXME shouldn't this also update the committed/in-transit/fulfilled
+            TODO: also update the committed/in-transit/fulfilled
                   status of the requisition?
         """
 
@@ -4306,8 +4415,9 @@ $.filterOptionsS3({
             This callback will be called when importing records. It will look
             to see if the record being imported is a duplicate.
 
-            @param item: An S3ImportItem object which includes all the details
-                         of the record being imported
+            Args:
+                item: An S3ImportItem object which includes all the details
+                      of the record being imported
 
             If the record is a duplicate then it will set the item method to update
 
@@ -4352,6 +4462,75 @@ $.filterOptionsS3({
             item.method = item.METHOD.UPDATE
 
 # =============================================================================
+class InventoryRequisitionItemInventoryModel(S3Model):
+    """
+        Make Inventory Reservations for Request Items
+        - used when settings.get_inv_req_reserve_items() == True
+    """
+
+    names = ("inv_req_item_inv",
+             )
+
+    def model(self):
+
+        T = current.T
+        db = current.db
+
+        inv_item_represent = inv_InvItemRepresent(show_bin = False)
+
+        # -----------------------------------------------------------------
+        # Request Items <> Inventory for Reserved Items
+        #
+        tablename = "inv_req_item_inv"
+        self.define_table(tablename,
+                          self.inv_req_item_id(empty = False),
+                          self.inv_item_id(empty = False,
+                                           represent = inv_item_represent,
+                                           requires = IS_ONE_OF(db, "inv_inv_item.id",
+                                                                inv_item_represent,
+                                                                orderby = "inv_inv_item.id",
+                                                                sort = True,
+                                                                ),
+                                           ),
+                          self.org_site_layout_id(label = T("Bin"),
+                                                  ),
+                          Field("quantity", "double",
+                                default = 0,
+                                label = T("Quantity"),
+                                represent = IS_FLOAT_AMOUNT.represent,
+                                requires = IS_FLOAT_AMOUNT(minimum = 0.0),
+                                ),
+                          *s3_meta_fields())
+
+        return None
+
+# =============================================================================
+class InventoryRequisitionItemCategoryModel(S3Model):
+    """
+        Link Inventory Requisitions to Item Categories to be able to Filter Requisitions
+        - used when settings.get_inv_req_filter_by_item_category() == True
+    """
+
+    names = ("inv_req_item_category",
+             )
+
+    def model(self):
+
+        # ---------------------------------------------------------------------
+        # Req <> Item Category link table
+        #
+        # - used to provide a search filter
+        # - populated onaccept/ondelete of req_item
+        #
+        tablename = "inv_req_item_category"
+        self.define_table(tablename,
+                          self.inv_req_id(empty = False),
+                          self.supply_item_category_id(),
+                          *s3_meta_fields())
+
+        return None
+
+# =============================================================================
 class InventoryRequisitionProjectModel(S3Model):
     """
         Link Inventory Requisitions to Projects
@@ -4381,7 +4560,7 @@ class InventoryRequisitionProjectModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
 # =============================================================================
 class InventoryRequisitionRecurringModel(S3Model):
@@ -4437,7 +4616,7 @@ class InventoryRequisitionRecurringModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
 # =============================================================================
 class InventoryRequisitionShipmentModel(S3Model):
@@ -4447,7 +4626,8 @@ class InventoryRequisitionShipmentModel(S3Model):
         By default, this link is neither a proper RDBMS link, nor M2M,
         but rather a single freetext field containing the req_ref
 
-        Used by: RMS
+        Used by:
+            RMS
     """
 
     names = ("inv_send_req",
@@ -4489,7 +4669,7 @@ class InventoryRequisitionShipmentModel(S3Model):
                      *s3_meta_fields()
                      )
 
-        return {}
+        return None
 
 # =============================================================================
 class InventoryRequisitionTagModel(S3Model):
@@ -4532,7 +4712,7 @@ class InventoryRequisitionTagModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return {}
+        return None
 
 # =============================================================================
 class InventoryStockCardModel(S3Model):
@@ -4554,7 +4734,6 @@ class InventoryStockCardModel(S3Model):
         define_table = self.define_table
         settings = current.deployment_settings
 
-        NONE = current.messages["NONE"]
         WAREHOUSE = T(settings.get_inv_facility_label())
 
         is_float_represent = IS_FLOAT_AMOUNT.represent
@@ -4591,6 +4770,10 @@ class InventoryStockCardModel(S3Model):
                                               required = True,
                                               ),
                      inv_itn_field()(),
+                     self.org_organisation_id("supply_org_id",
+                                              label = T("Supplier/Donor"),
+                                              ondelete = "SET NULL",
+                                              ),
                      s3_date("expiry_date",
                              label = T("Expiry Date"),
                              represent = inv_expiry_date_represent,
@@ -4674,7 +4857,7 @@ class InventoryStockCardModel(S3Model):
                                  ],
                   )
 
-        return {}
+        return None
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -4745,7 +4928,6 @@ class InventoryTrackingModel(S3Model):
                            TRACK_STATUS_RETURNING: T("Returning"),
                            }
 
-        NONE = current.messages["NONE"]
         SITE_LABEL = settings.get_org_site_label()
 
         document_filing = settings.get_inv_document_filing()
@@ -4771,6 +4953,13 @@ class InventoryTrackingModel(S3Model):
                            }
         radio_widget = lambda field, value: \
                               RadioWidget().widget(field, value, cols = 2)
+
+        transport_opts = {"Air": T("Air"),
+                          "Sea": T("Sea"),
+                          "Road": T("Road"),
+                          "Rail": T("Rail"),
+                          "Hand": T("Hand"),
+                          }
 
         # ---------------------------------------------------------------------
         # Send (Outgoing / Dispatch / etc)
@@ -4849,7 +5038,8 @@ class InventoryTrackingModel(S3Model):
                                ),
                      Field("transport_type",
                            label = T("Type of Transport"),
-                           represent = string_represent,
+                           represent = s3_options_represent(transport_opts),
+                           requires = IS_EMPTY_OR(IS_IN_SET(transport_opts)),
                            ),
                      Field("transported_by",
                            label = T("Transported by"),
@@ -4861,11 +5051,25 @@ class InventoryTrackingModel(S3Model):
                                          ),
                            ),
                      Field("transport_ref",
+                           # Label adjusted based on transport_type in controller
                            label = T("Transport Reference"),
                            represent = string_represent,
                            comment = DIV(_class = "tooltip",
                                          _title = "%s|%s" % (T("Transport Reference"),
-                                                             T("Consignment Number, Tracking Number, etc"),
+                                                             T("Air WayBill, Bill of Lading, Consignment Number, Tracking Number, etc"),
+                                                             ),
+                                         ),
+                           ),
+                     Field("vehicle",
+                           label = T("Vehicle"),
+                           represent = string_represent,
+                           ),
+                     Field("registration_no",
+                           label = T("Registration Number"),
+                           represent = string_represent,
+                           comment = DIV(_class = "tooltip",
+                                         _title = "%s|%s" % (T("Registration Number"),
+                                                             T("Flight Number, Vheicle Plate Number, Vessel Registration, etc"),
                                                              ),
                                          ),
                            ),
@@ -4877,10 +5081,6 @@ class InventoryTrackingModel(S3Model):
                            label = T("Driver Phone Number"),
                            represent = lambda v: v or "",
                            requires = IS_EMPTY_OR(IS_PHONE_NUMBER_MULTI()),
-                           ),
-                     Field("vehicle_plate_no",
-                           label = T("Vehicle Plate Number"),
-                           represent = string_represent,
                            ),
                      Field("time_in", "time",
                            label = T("Time In"),
@@ -4905,7 +5105,6 @@ class InventoryTrackingModel(S3Model):
                      s3_datetime("delivery_date",
                                  label = T("Estimated Delivery Date"),
                                  represent = "date",
-                                 writable = False,
                                  ),
                      Field("status", "integer",
                            default = SHIP_STATUS_IN_PROCESS,
@@ -5006,11 +5205,8 @@ class InventoryTrackingModel(S3Model):
 
         # Components
         add_components(tablename,
-
                        inv_track_item = "send_id",
-
                        inv_send_package = "send_id",
-
                        # Requisitions
                        inv_send_req = "send_id",
                        inv_req = {"link": "inv_send_req",
@@ -5039,12 +5235,14 @@ class InventoryTrackingModel(S3Model):
                        "transport_type",
                        "driver_name",
                        "driver_phone",
-                       "vehicle_plate_no",
+                       "registration_no",
                        "time_out",
                        "comments",
                        ]
 
         configure(tablename,
+                  addbtn = True,
+                  listadd = False,
                   create_next = send_item_url,
                   update_next = send_item_url,
                   # It shouldn't be possible for the user to delete a shipment
@@ -5057,6 +5255,7 @@ class InventoryTrackingModel(S3Model):
                   orderby = "inv_send.date desc",
                   sortby = [[5, "desc"], [1, "asc"]],
                   super_entity = ("doc_entity",),
+                  wizard = inv_SendWizard(),
                   )
 
         # ---------------------------------------------------------------------
@@ -5147,10 +5346,36 @@ class InventoryTrackingModel(S3Model):
                                ),
                      Field("transport_type",
                            label = T("Type of Transport"),
-                           # Enable in template as-required
-                           readable = False,
-                           writable = False,
+                           represent = s3_options_represent(transport_opts),
+                           requires = IS_EMPTY_OR(IS_IN_SET(transport_opts)),
+                           ),
+                     Field("transported_by",
+                           label = T("Transported by"),
                            represent = string_represent,
+                           comment = DIV(_class = "tooltip",
+                                         _title = "%s|%s" % (T("Transported by"),
+                                                             T("Freight company or organisation providing transport"),
+                                                             ),
+                                         ),
+                           ),
+                     Field("transport_ref",
+                           # Label adjusted based on transport_type in controller
+                           label = T("Transport Reference"),
+                           represent = string_represent,
+                           comment = DIV(_class = "tooltip",
+                                         _title = "%s|%s" % (T("Transport Reference"),
+                                                             T("Air WayBill, Bill of Lading, Consignment Number, Tracking Number, etc"),
+                                                             ),
+                                         ),
+                           ),
+                     Field("registration_no",
+                           label = T("Registration Number"),
+                           represent = string_represent,
+                           comment = DIV(_class = "tooltip",
+                                         _title = "%s|%s" % (T("Registration Number"),
+                                                             T("Flight Number, Vheicle Plate Number, Vessel Registration, etc"),
+                                                             ),
+                                         ),
                            ),
                      Field("status", "integer",
                            default = SHIP_STATUS_IN_PROCESS,
@@ -5298,6 +5523,8 @@ class InventoryTrackingModel(S3Model):
                             )
 
         configure(tablename,
+                  addbtn = True,
+                  listadd = False,
                   create_next = recv_item_url,
                   update_next = recv_item_url,
                   # It shouldn't be possible for the user to delete a shipment
@@ -5324,13 +5551,12 @@ class InventoryTrackingModel(S3Model):
                   orderby = "inv_recv.date desc",
                   sortby = [[6, "desc"], [1, "asc"]],
                   super_entity = ("doc_entity",),
+                  wizard = inv_RecvWizard(),
                   )
 
         # Components
         add_components(tablename,
-
                        inv_track_item = "recv_id",
-
                        # Requisitions
                        inv_recv_req = "recv_id",
                        inv_req = {"link": "inv_recv_req",
@@ -5670,7 +5896,7 @@ class InventoryTrackingModel(S3Model):
             return round(quantity * pack_value, 2)
         else:
             # Item lacks quantity, or value per pack, or both
-            return current.messages["NONE"]
+            return NONE
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -5698,7 +5924,7 @@ class InventoryTrackingModel(S3Model):
             volume = supply_item.volume if supply_item else None
 
         if volume is None:
-            return current.messages["NONE"]
+            return NONE
 
         if received:
             qfield = "recv_quantity"
@@ -5760,7 +5986,7 @@ class InventoryTrackingModel(S3Model):
             weight = supply_item.weight if supply_item else None
 
         if weight is None:
-            return current.messages["NONE"]
+            return NONE
 
         if received:
             qfield = "recv_quantity"
@@ -5896,7 +6122,7 @@ class InventoryTrackingModel(S3Model):
             else:
                 return value
         else:
-            return current.messages["NONE"]
+            return NONE
 
     # ---------------------------------------------------------------------
     @staticmethod
@@ -5923,7 +6149,7 @@ class InventoryTrackingModel(S3Model):
             else:
                 return B(value)
         else:
-            return current.messages["NONE"]
+            return NONE
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -6068,7 +6294,7 @@ def inv_adj_close(r, **attr):
         error = T("This adjustment has already been closed.")
         current.session.error = error
         r.error(409, error,
-                tree = URL(args = [adj_id]),
+                tree = '"%s"' % URL(args = [adj_id]),
                 )
 
     db = current.db
@@ -6353,7 +6579,7 @@ def inv_commit_all(r, **attr):
         error = T("Some items have already been committed")
         current.session.error = error
         r.error(409, error,
-                tree = URL(args = [req_id, "commit"]),
+                tree = '"%s"' % URL(args = [req_id, "commit"]),
                 )
 
     # Create the commitment
@@ -7077,11 +7303,314 @@ def inv_gift_certificate(r, **attr):
     return output.read()
 
 # =============================================================================
+def inv_item_label(r, **attr):
+    """
+        Generate a Label for a Shipment Item
+        - can be used to label items as they are stored in the warehouse
+        - can be used to label items as they are added to outbound packages
+
+        This is exported in XLS format to be user-editable
+        - we don't have the width x length x height (we don't currently store these for packs)
+    """
+
+    from s3.codecs.xls import S3XLS
+
+    try:
+        import xlwt
+    except ImportError:
+        r.error(503, S3XLS.ERROR.XLWT_ERROR)
+
+    # Extract the Data
+    db = current.db
+    s3db = current.s3db
+
+    # Item Details
+    ttable = s3db.inv_track_item
+    itable = s3db.supply_item
+    ptable = s3db.supply_item_pack
+    query = (ttable.id == r.component_id) & \
+            (ttable.item_id == itable.id) & \
+            (ttable.item_pack_id == ptable.id)
+    item = db(query).select(ttable.expiry_date,
+                            ttable.supply_org_id,
+                            itable.code,
+                            itable.name,
+                            itable.weight,
+                            ptable.name,
+                            ptable.quantity,
+                            limitby = (0, 1),
+                            ).first()
+
+    pack = item["supply_item_pack"]
+    track_item = item["inv_track_item"]
+    supply_item = item["supply_item"]
+    item_code = supply_item.code or ""
+    item_name = supply_item.name[:24]
+    pack_quantity = pack.quantity
+
+    weight = supply_item.weight * pack_quantity
+
+    # Length & Width are unknown as we don't track pack sizes
+    length = ""
+    width = ""
+    height = ""
+
+    # Organisation
+    otable = s3db.org_organisation
+    stable = s3db.org_site
+    query = (stable.site_id == r.record.site_id) & \
+            (stable.organisation_id == otable.id)
+    org = db(query).select(otable.id,
+                           otable.root_organisation,
+                           otable.logo,
+                           limitby = (0, 1)
+                           ).first()
+
+    if org.id != org.root_organisation:
+        # Lookup Root Org
+        org = db(otable.id == org.root_organisation).select(otable.logo,
+                                                            limitby = (0, 1)
+                                                            ).first()
+
+    # Represent the Data
+    T = current.T
+
+    from .org import org_OrganisationRepresent
+    org_represent = org_OrganisationRepresent(acronym = False,
+                                              parent = False,
+                                              )
+
+    # Create the workbook
+    book = xlwt.Workbook(encoding = "utf-8")
+
+    # Define styles
+    POINT_36 = 720 # Twips = Points * 20
+    ROW_HEIGHT = 890 # Realised through trial & error
+
+    style = xlwt.XFStyle()
+    style.font.height = POINT_36
+
+    HORZ_CENTER = style.alignment.HORZ_CENTER
+    VERT_CENTER = style.alignment.VERT_CENTER
+
+    bold_style = xlwt.XFStyle()
+    bold_style.font.bold = True
+    bold_style.font.height = POINT_36
+    bold_style.borders.top = style.borders.THICK
+
+    center_style = xlwt.XFStyle()
+    center_style.alignment.horz = style.alignment.HORZ_CENTER
+    center_style.font.height = POINT_36
+
+    right_style = xlwt.XFStyle()
+    right_style.alignment.horz = style.alignment.HORZ_RIGHT
+    right_style.font.height = POINT_36
+
+    big_box_style = xlwt.XFStyle()
+    big_box_style.font.bold = True
+    big_box_style.font.height = 1120 # 1120 Twips = 56 point
+    big_box_style.alignment.horz = HORZ_CENTER
+    big_box_style.alignment.vert = VERT_CENTER
+
+    box_style = xlwt.XFStyle()
+    box_style.font.height = 960 # 960 Twips = 48 point
+    box_style.alignment.horz = HORZ_CENTER
+    box_style.alignment.vert = VERT_CENTER
+
+    logo = org.logo
+    if logo:
+        # We need to convert to 24-bit BMP
+        try:
+            from PIL import Image
+        except:
+            current.log.error("PIL not installed: Cannot insert logo")
+        else:
+            IMG_WIDTH = 230
+            filename, extension = os.path.splitext(logo)
+            logo_path = os.path.join(r.folder, "uploads", logo)
+            if extension == ".png":
+                # Remove Transparency
+                png = Image.open(logo_path).convert("RGBA")
+                size = png.size
+                background = Image.new("RGBA", size, (255,255,255))
+                img = Image.alpha_composite(background, png)
+            else:
+                img = Image.open(logo_path)
+                size = img.size
+            img_width = size[0]
+            img_height = int(IMG_WIDTH/img_width * size[1])
+            img = img.convert("RGB").resize((IMG_WIDTH, img_height))
+            from io import BytesIO
+            bmpfile = BytesIO()
+            img.save(bmpfile, "BMP")
+            bmpfile.seek(0)
+            bmpdata = bmpfile.read()
+
+    # Add sheet
+    sheet = book.add_sheet(item_code or item_name)
+    sheet.fit_num_pages = 1
+
+    # Set column Widths
+    sheet.col(0).width = 4172   # 3.19 cm A
+    sheet.col(1).width = 1505   # 1.15 cm B
+    sheet.col(2).width = 4069   # 3.11 cm C
+    sheet.col(3).width = 1752   # 1.34 cm D
+    sheet.col(4).width = 4069   # 3.11 cm E
+    sheet.col(5).width = 1505   # 1.15 cm F
+    sheet.col(6).width = 3256   # 2.49 cm G
+    sheet.col(7).width = 2341   # 1.79 cm H
+    sheet.col(8).width = 2642   # 2.05 cm I
+    sheet.col(9).width = 4682   # 3.58 cm J
+    sheet.col(10).width = 2341  # 1.79 cm K
+    sheet.col(11).width = 5414  # 4.14 cm L
+    sheet.col(12).width = 2341  # 1.79 cm M
+    sheet.col(13).width = 2341  # 1.79 cm N
+
+    if logo:
+        # 1st row: Logo
+        sheet.insert_bitmap_data(bmpdata, 0, 11)
+
+    # 7th row: Height
+    current_row = sheet.row(6)
+    current_row.height = ROW_HEIGHT
+
+    # 8th row: Item Name
+    row_index = 7
+    sheet.write_merge(row_index, row_index + 5, 0, 13, item_name, big_box_style)
+
+    # 14th row: Height
+    current_row = sheet.row(13)
+    current_row.height = ROW_HEIGHT
+
+    # 16th row: Divider
+    current_row = sheet.row(15)
+    for col_index in range(14):
+        current_row.write(col_index, "", bold_style)
+
+    # 18th row: Item Name
+    row_index = 16
+    sheet.write_merge(row_index, row_index + 5, 0, 13, item_code, box_style)
+
+    # 25th row: Height
+    current_row = sheet.row(24)
+    current_row.height = ROW_HEIGHT
+
+    # 26th row: UoM
+    current_row = sheet.row(25)
+    current_row.height = ROW_HEIGHT
+    current_row.write(4, "measure of unit :", right_style)
+    if pack_quantity == 1:
+        label = pack.name
+    else:
+        # Lookup the Unit Pack
+        query = (ptable.item_id == supply_item.id) & \
+                (ptable.quantity == 1)
+        unit_pack = db(query).select(ptable.name,
+                                     limitby = (0, 1),
+                                     ).first()
+        label = "%s %s / %s" % (pack_quantity,
+                                unit_pack.name,
+                                pack.name,
+                                )
+    current_row.write(6, label, style)
+
+    # 27th row: Height
+    current_row = sheet.row(26)
+    current_row.height = ROW_HEIGHT
+
+    # 28th row: Expiry Date
+    current_row = sheet.row(27)
+    current_row.height = ROW_HEIGHT
+    current_row.write(4, "expiry date :", right_style)
+    expiry_date = track_item.expiry_date
+    if expiry_date:
+        label = str(expiry_date)
+    else:
+        label = "N/A"
+    current_row.write(6, label, style)
+
+    # 29th row: Height
+    current_row = sheet.row(28)
+    current_row.height = ROW_HEIGHT
+
+    # 30th row: Donor
+    current_row = sheet.row(29)
+    current_row.height = ROW_HEIGHT
+    current_row.write(4, "donor :", right_style)
+    donor = track_item.supply_org_id
+    if donor:
+        label = org_represent(donor)
+    else:
+        label = "N/A"
+    current_row.write(6, label, style)
+
+    # 31st row: Height
+    current_row = sheet.row(30)
+    current_row.height = ROW_HEIGHT
+
+    # 32nd row: Height
+    current_row = sheet.row(31)
+    current_row.height = ROW_HEIGHT
+
+    # 37th row: Size Labels
+    current_row = sheet.row(36)
+    current_row.height = ROW_HEIGHT
+    current_row.write(0, "Dimensions :", bold_style)
+    for col_index in range(1, 8):
+        # Divider
+        current_row.write(col_index, "", bold_style)
+    current_row.write(8, "Weight", bold_style)
+    for col_index in range(9, 11):
+        # Divider
+        current_row.write(col_index, "", bold_style)
+    current_row.write(11, "Volume", bold_style)
+    for col_index in range(12, 14):
+        # Divider
+        current_row.write(col_index, "", bold_style)
+
+    # 38th row: Sizes
+    current_row = sheet.row(37)
+    current_row.height = ROW_HEIGHT
+    current_row.write(0, width, center_style)
+    current_row.write(1, "x", style)
+    current_row.write(2, length, center_style)
+    current_row.write(3, "x", style)
+    current_row.write(4, height, center_style)
+    current_row.write(5, "m", style)
+    current_row.write(7, weight, style)
+    current_row.write(9, "Kgs", style)
+    formula = xlwt.Formula("ROUND(A38*C38*E38, 2)")
+    current_row.write(11, formula, center_style)
+    current_row.write(12, "m3", style)
+
+    # Export to File
+    output = BytesIO()
+    try:
+        book.save(output)
+    except:
+        import sys
+        error = sys.exc_info()[1]
+        current.log.error(error)
+    output.seek(0)
+
+    # Response headers
+    title = s3_str(T("Label for %(item)s")) % {"item": item_code or item_code or item_name}
+    filename = "%s.xls" % title
+    response = current.response
+    from gluon.contenttype import contenttype
+    response.headers["Content-Type"] = contenttype(".xls")
+    disposition = "attachment; filename=\"%s\"" % filename
+    response.headers["Content-disposition"] = disposition
+
+    return output.read()
+
+# =============================================================================
 def inv_item_total_volume(row):
     """
         Compute the total volume of an inventory item (Field.Method)
 
-        @param row: the Row
+        Args:
+            row: the Row
     """
 
     try:
@@ -7105,7 +7634,7 @@ def inv_item_total_volume(row):
         volume = supply_item.volume if supply_item else None
 
     if volume is None:
-        return current.messages["NONE"]
+        return NONE
 
     try:
         quantity = inv_item.quantity
@@ -7141,7 +7670,8 @@ def inv_item_total_weight(row):
     """
         Compute the total weight of an inventory item (Field.Method)
 
-        @param row: the Row
+        Args:
+            row: the Row
     """
 
     try:
@@ -7165,7 +7695,7 @@ def inv_item_total_weight(row):
         weight = supply_item.weight if supply_item else None
 
     if weight is None:
-        return current.messages["NONE"]
+        return NONE
 
     try:
         quantity = inv_item.quantity
@@ -7719,7 +8249,7 @@ def inv_package_labels(r, **attr):
         - separate sheet per Package
 
         This is exported in XLS format to be user-editable
-        - we don't have the width x length x height
+        - we can only estimate height for Palettes
     """
 
     from s3.codecs.xls import S3XLS
@@ -7751,25 +8281,7 @@ def inv_package_labels(r, **attr):
                                 ptable.depth,
                                 )
 
-    # Package Items
-    spitable = s3db.inv_send_package_item
-    ttable = s3db.inv_track_item
-    itable = s3db.supply_item
-    ptable = s3db.supply_item_pack
-    query = (spitable.send_package_id.belongs([p["inv_send_package.id"] for p in packages])) & \
-            (spitable.track_item_id == ttable.id) & \
-            (ttable.item_id == itable.id) & \
-            (ttable.item_pack_id == ptable.id)
-    items = db(query).select(spitable.send_package_id,
-                             spitable.quantity,
-                             ttable.expiry_date,
-                             ttable.supply_org_id,
-                             itable.id,
-                             itable.code,
-                             itable.name,
-                             ptable.name,
-                             ptable.quantity,
-                             )
+    total_packages = len(packages)
 
     # Organisation
     otable = s3db.org_organisation
@@ -7791,12 +8303,9 @@ def inv_package_labels(r, **attr):
     # Represent the Data
     T = current.T
 
-    from .org import org_OrganisationRepresent
-    org_represent = org_OrganisationRepresent(acronym = False,
-                                              parent = False,
-                                              )
-    # Cache results in class instance
-    org_represent.bulk([item["inv_track_item.supply_org_id"] for item in items])
+    site_represent = S3Represent(lookup = "org_site")
+    source = site_represent(record.site_id)
+    destination = site_represent(record.to_site_id)
 
     # Create the workbook
     book = xlwt.Workbook(encoding = "utf-8")
@@ -7867,17 +8376,19 @@ def inv_package_labels(r, **attr):
     for row in packages:
         package = row.inv_package
         send_package = row.inv_send_package
+        package_type = package.type
+        package_number = send_package.number
 
         # Add sheet
-        sheet = book.add_sheet(str(send_package.number))
-        sheet.set_print_scaling(90)
+        sheet = book.add_sheet(str(package_number))
+        sheet.fit_num_pages = 1
 
         # Weight is Load + Package Weight
         package_weight = str(int(send_package.weight + package.weight))
         # Length & Width are those of the Package
         length = package.length
         width = package.width
-        if package.type == "BOX":
+        if package_type == "BOX":
             height = package.depth
         elif length and width:
             # Pallet
@@ -7888,26 +8399,22 @@ def inv_package_labels(r, **attr):
             height = ""
 
         send_package_id = send_package.id
-        package_items = items.find(lambda row: row["inv_send_package_item.send_package_id"] == send_package_id)
-
-        # @ToDo: Handle Multiple Items on a Pallet
-        item = package_items.first()
 
         # Set column Widths
-        sheet.col(0).width = 4172   # 3.19 cm
-        sheet.col(1).width = 1505   # 1.15 cm
-        sheet.col(2).width = 4069   # 3.11 cm
-        sheet.col(3).width = 1752   # 1.34 cm
-        sheet.col(4).width = 4069   # 3.11 cm
-        sheet.col(5).width = 1505   # 1.15 cm
-        sheet.col(6).width = 3256   # 2.49 cm
-        sheet.col(7).width = 2341   # 1.79 cm
-        sheet.col(8).width = 2642   # 2.02 cm
-        sheet.col(9).width = 4682   # 3.58 cm
-        sheet.col(10).width = 2341  # 1.79 cm
-        sheet.col(11).width = 5414  # 4.14 cm
-        sheet.col(12).width = 2341  # 1.79 cm
-        sheet.col(13).width = 2341  # 1.79 cm
+        sheet.col(0).width = 4172   # 3.19 cm A
+        sheet.col(1).width = 1505   # 1.15 cm B
+        sheet.col(2).width = 4069   # 3.11 cm C
+        sheet.col(3).width = 1752   # 1.34 cm D
+        sheet.col(4).width = 4069   # 3.11 cm E
+        sheet.col(5).width = 1505   # 1.15 cm F
+        sheet.col(6).width = 3256   # 2.49 cm G
+        sheet.col(7).width = 2341   # 1.79 cm H
+        sheet.col(8).width = 2642   # 2.05 cm I
+        sheet.col(9).width = 4682   # 3.58 cm J
+        sheet.col(10).width = 2341  # 1.79 cm K
+        sheet.col(11).width = 5414  # 4.14 cm L
+        sheet.col(12).width = 2341  # 1.79 cm M
+        sheet.col(13).width = 2341  # 1.79 cm N
 
         if logo:
             # 1st row: Logo
@@ -7917,10 +8424,19 @@ def inv_package_labels(r, **attr):
         current_row = sheet.row(6)
         current_row.height = ROW_HEIGHT
 
-        # 8th row: Item Name
+        # 8th row: Package Number
         row_index = 7
-        supply_item = item.supply_item
-        sheet.write_merge(row_index, row_index + 5, 0, 13, supply_item.name[:24], big_box_style)
+        
+        if package_type == "BOX":
+            package_name = T("Box %(number)s / %(total)s") % {"number": package_number,
+                                                              "total": total_packages,
+                                                              }
+        else:
+            # Pallet
+            package_name = T("Pallet %(number)s / %(total)s") % {"number": package_number,
+                                                                 "total": total_packages,
+                                                                 }
+        sheet.write_merge(row_index, row_index + 5, 0, 13, s3_str(package_name), big_box_style)
 
         # 14th row: Height
         current_row = sheet.row(13)
@@ -7931,75 +8447,20 @@ def inv_package_labels(r, **attr):
         for col_index in range(14):
             current_row.write(col_index, "", bold_style)
 
-        # 18th row: Item Name
+        # 18th row: From
         row_index = 16
-        sheet.write_merge(row_index, row_index + 5, 0, 13, supply_item.code, box_style)
+        sheet.write_merge(row_index, row_index + 5, 0, 13, "%s: %s" % (T("From"),
+                                                                       source,
+                                                                       ), box_style)
 
-        # 25th row: Height
-        current_row = sheet.row(24)
-        current_row.height = ROW_HEIGHT
+        # 25th row: To
+        row_index = 24
+        sheet.write_merge(row_index, row_index + 5, 0, 13, "%s: %s" % (T("To"),
+                                                                       destination,
+                                                                       ), box_style)
 
-        # 26th row: UoM
-        current_row = sheet.row(25)
-        current_row.height = ROW_HEIGHT
-        current_row.write(4, "measure of unit :", right_style)
-        pack = item.supply_item_pack
-        pack_quantity = pack.quantity
-        if pack_quantity == 1:
-            label = pack.name
-        else:
-            # Lookup the Unit Pack
-            query = (ptable.item_id == supply_item.id) & \
-                    (ptable.quantity == 1)
-            unit_pack = db(query).select(ptable.name,
-                                         limitby = (0, 1),
-                                         ).first()
-            label = "%s %s / %s" % (pack_quantity,
-                                    unit_pack.name,
-                                    pack.name,
-                                    )
-        current_row.write(6, label, style)
-
-        # 27th row: Height
-        current_row = sheet.row(26)
-        current_row.height = ROW_HEIGHT
-
-        # 28th row: Expiry Date
-        current_row = sheet.row(27)
-        current_row.height = ROW_HEIGHT
-        current_row.write(4, "expiry date :", right_style)
-        expiry_date = item["inv_track_item.expiry_date"]
-        if expiry_date:
-            label = str(expiry_date)
-        else:
-            label = "N/A"
-        current_row.write(6, label, style)
-
-        # 29th row: Height
-        current_row = sheet.row(28)
-        current_row.height = ROW_HEIGHT
-
-        # 30th row: Donor
-        current_row = sheet.row(29)
-        current_row.height = ROW_HEIGHT
-        current_row.write(4, "donor :", right_style)
-        donor = item["inv_track_item.supply_org_id"]
-        if donor:
-            label = org_represent(donor)
-        else:
-            label = "N/A"
-        current_row.write(6, label, style)
-
-        # 31st row: Height
-        current_row = sheet.row(30)
-        current_row.height = ROW_HEIGHT
-
-        # 32nd row: Height
+        # 32rd row: Size Labels
         current_row = sheet.row(31)
-        current_row.height = ROW_HEIGHT
-
-        # 37th row: Size Labels
-        current_row = sheet.row(36)
         current_row.height = ROW_HEIGHT
         current_row.write(0, "Dimensions :", bold_style)
         for col_index in range(1, 8):
@@ -8014,17 +8475,18 @@ def inv_package_labels(r, **attr):
             # Divider
             current_row.write(col_index, "", bold_style)
 
-        # 38th row: Sizes
-        current_row = sheet.row(37)
+        # 33rd row: Sizes
+        current_row = sheet.row(32)
         current_row.height = ROW_HEIGHT
         current_row.write(0, width, center_style)
         current_row.write(1, "x", style)
         current_row.write(2, length, center_style)
         current_row.write(3, "x", style)
         current_row.write(4, height, center_style)
-        current_row.write(8, package_weight, center_style)
+        current_row.write(5, "m", style)
+        current_row.write(7, package_weight, style)
         current_row.write(9, "Kgs", style)
-        formula = xlwt.Formula("A38*C38*E38")
+        formula = xlwt.Formula("ROUND(A33*C33*E33, 2)")
         current_row.write(11, formula, center_style)
         current_row.write(12, "m3", style)
 
@@ -8070,10 +8532,10 @@ def inv_pick_list(r, **attr):
 
     if record.status != SHIP_STATUS_IN_PROCESS:
         r.error(405, T("Picking List can only be generated for Shipments being prepared"),
-                next = URL(c = "inv",
-                           f = "send",
-                           args = [send_id],
-                           ),
+                next = '"%s"' % URL(c = "inv",
+                                    f = "send",
+                                    args = [send_id],
+                                    ),
                 )
 
     from s3.codecs.xls import S3XLS
@@ -8390,7 +8852,7 @@ def inv_recv_cancel(r, **attr):
 
     if record.status != SHIP_STATUS_RECEIVED:
         r.error(409, T("This shipment has not been received - it has NOT been canceled because it can still be edited."),
-                tree = URL(args = [send_id]),
+                tree = '"%s"' % URL(args = [send_id]),
                 )
 
     db = current.db
@@ -8505,6 +8967,13 @@ def inv_recv_controller():
                action = inv_recv_donation_cert,
                )
 
+    # Generate Item Labels
+    set_method("inv", "recv",
+               component_name = "track_item",
+               method = "label",
+               action = inv_item_label,
+               )
+
     # Process Shipment
     set_method("inv", "recv",
                method = "process",
@@ -8523,19 +8992,69 @@ def inv_recv_controller():
         if record:
             status = record.status
 
+        export_formats = settings.ui.export_formats
+        if "pdf" in export_formats:
+            # Use 'form' instead of standard PDF exporter
+            export_formats = list(export_formats)
+            export_formats.remove("pdf")
+            settings.ui.export_formats = export_formats
+
         if r.component:
-            if r.component_name == "document":
+            component_name = r.component_name
+            if component_name == "document":
+                s3.crud_strings["doc_document"].label_create = T("File Signed Document")
+
                 # Simplify a little
                 table = s3db.doc_document
                 table.file.required = True
-                table.url.readable = table.url.writable = False
-                table.date.readable = table.date.writable = False
+                #table.url.readable = table.url.writable = False
+                #table.date.readable = table.date.writable = False
 
-            elif r.component_name == "track_item":
+                GRN = settings.get_inv_recv_form_name()
+                field = table.name
+                field.label = T("Type")
+                document_type_opts = {"REQ": settings.get_inv_req_form_name(),
+                                      "GRN": GRN,
+                                      "WB": settings.get_inv_send_form_name(),
+                                      }
+                field.default = "GRN"
+                field.requires = IS_IN_SET(document_type_opts)
+                field.represent = s3_options_represent(document_type_opts)
 
+                # Add button to print the GRN
+                # - needed for Wizard, but generalised for consistency
+                button = DIV(P(T("Print and Upload the signed %(grn)s:") % {"grn": GRN}),
+                             A(ICON("print"),
+                               " ",
+                               settings.get_inv_recv_shortname(),
+                               _href = URL(args = [record.id,
+                                                   "form",
+                                                   ]
+                                         ),
+                               _class = "action-btn",
+                               ),
+                            )
+
+                crud_form = S3SQLCustomForm(S3SQLInlineWidget(button),
+                                            "name",
+                                            "file",
+                                            "comments",
+                                            )
+
+                s3db.configure("doc_document",
+                               crud_form = crud_form,
+                               )
+
+            elif component_name == "track_item":
+
+                method = r.method
+                if method == "wizard":
+                    page = r.get_vars.get("page")
+                else:
+                    page = None
                 # Security-wise, we are already covered by configure()
                 # Performance-wise, we should optimise for UI-acessible flows
-                #if r.method == "create" or r.method == "delete":
+                #if method == "create" or method == "delete":
                 #    # Can only create or delete track items for a recv record
                 #    # if the status is preparing:
                 #    if status != SHIP_STATUS_IN_PROCESS:
@@ -8576,30 +9095,68 @@ def inv_recv_controller():
                         tracktable.send_inv_item_id.readable = False
                         # Change some labels - NO - use consistent labels
                         #tracktable.quantity.label = T("Quantity Delivered")
-                        crud_form = S3SQLCustomForm("item_id",
-                                                    "item_pack_id",
-                                                    "quantity",
-                                                    "recv_quantity",
-                                                    S3SQLInlineComponent("recv_bin",
-                                                                         label = T("Add to Bins"),
-                                                                         fields = ["layout_id",
-                                                                                   "quantity",
-                                                                                   ],
-                                                                         ),
-                                                    "return_quantity",
-                                                    "pack_value",
-                                                    "currency",
-                                                    "expiry_date",
-                                                    "item_source_no",
-                                                    "supply_org_id",
-                                                    "owner_org_id",
-                                                    "inv_item_status",
-                                                    "status",
-                                                    # readable/writable = False by default
-                                                    # writable set to True later if linked to requests
-                                                    "req_item_id",
-                                                    "comments",
-                                                    )
+                        if page == "items":
+                            # Standard form, but without Bins
+                            crud_form = S3SQLCustomForm("item_id",
+                                                        "item_pack_id",
+                                                        "quantity",
+                                                        "recv_quantity",
+                                                        "return_quantity",
+                                                        "pack_value",
+                                                        "currency",
+                                                        "expiry_date",
+                                                        "item_source_no",
+                                                        "supply_org_id",
+                                                        "owner_org_id",
+                                                        "inv_item_status",
+                                                        "status",
+                                                        # readable/writable = False by default
+                                                        # writable set to True later if linked to requests
+                                                        "req_item_id",
+                                                        "comments",
+                                                        )
+                        elif page == "bins":
+                            # Just Bins
+                            # - currently has more fields, to support JS
+                            crud_form = S3SQLCustomForm("item_id",
+                                                        "item_pack_id",
+                                                        "quantity",
+                                                        "recv_quantity",
+                                                        S3SQLInlineComponent("recv_bin",
+                                                                             label = T("Add to Bins"),
+                                                                             fields = ["layout_id",
+                                                                                       "quantity",
+                                                                                       ],
+                                                                             ),
+                                                        # readable/writable = False by default
+                                                        # writable set to True later if linked to requests
+                                                        "req_item_id",
+                                                        )
+                        else:
+                            crud_form = S3SQLCustomForm("item_id",
+                                                        "item_pack_id",
+                                                        "quantity",
+                                                        "recv_quantity",
+                                                        S3SQLInlineComponent("recv_bin",
+                                                                             label = T("Add to Bins"),
+                                                                             fields = ["layout_id",
+                                                                                       "quantity",
+                                                                                       ],
+                                                                             ),
+                                                        "return_quantity",
+                                                        "pack_value",
+                                                        "currency",
+                                                        "expiry_date",
+                                                        "item_source_no",
+                                                        "supply_org_id",
+                                                        "owner_org_id",
+                                                        "inv_item_status",
+                                                        "status",
+                                                        # readable/writable = False by default
+                                                        # writable set to True later if linked to requests
+                                                        "req_item_id",
+                                                        "comments",
+                                                        )
 
                     elif track_status == TRACK_STATUS_TRANSIT:
                         # Internal Shipment auto-generated from inv_send_process
@@ -8688,6 +9245,7 @@ def inv_recv_controller():
                 track_item_id = r.component_id
                 if track_item_id:
                     track_record = db(tracktable.id == track_item_id).select(tracktable.item_id,
+                                                                             tracktable.quantity,
                                                                              tracktable.status,
                                                                              limitby = (0, 1),
                                                                              ).first()
@@ -8708,18 +9266,27 @@ def inv_recv_controller():
                     crud_form = set_track_attr(TRACK_STATUS_PREPARING)
                     tracktable.status.readable = False
 
-                list_fields = [#"status",
-                               "item_id",
-                               "item_pack_id",
-                               "quantity",
-                               "recv_quantity",
-                               "recv_bin.layout_id",
-                               "owner_org_id",
-                               "supply_org_id",
-                               ]
-                if track_pack_values:
-                    list_fields.insert(4, "pack_value")
-                    list_fields.insert(4, "currency")
+                if page == "bins":
+                    list_fields = ["item_id",
+                                   "recv_quantity",
+                                   "recv_bin.layout_id",
+                                   ]
+                else:
+                    list_fields = [#"status",
+                                   "item_id",
+                                   "item_pack_id",
+                                   "quantity",
+                                   "recv_quantity",
+                                   "recv_bin.layout_id",
+                                   "owner_org_id",
+                                   "supply_org_id",
+                                   ]
+                    if track_pack_values:
+                        list_fields.insert(4, "pack_value")
+                        list_fields.insert(4, "currency")
+                    if page == "items":
+                        # Bins are handled on a separate step
+                        list_fields.remove("recv_bin.layout_id")
 
                 if status:
                     # Lock the record so it can't be fiddled with
@@ -8729,17 +9296,39 @@ def inv_recv_controller():
                         # Lock the record so it can't be fiddled with
                         # - other than being able to edit Quantity Received & Bin
                         editable = True
+                        if r.interactive:
+                            s3.crud_strings.inv_recv.title_update = \
+                            s3.crud_strings.inv_recv.title_display = T("Process Received Shipment")
+                            if track_item_id and method in (None, "update", "wizard"):
+                                # Limit to Bins from this site
+                                from .org import org_site_layout_config
+                                irbtable = s3db.inv_recv_item_bin
+                                org_site_layout_config(record.site_id, irbtable.layout_id)
+                                # Manage bin allocations
+                                if s3.debug:
+                                    s3.scripts.append("/%s/static/scripts/S3/s3.inv_recv_sent_item.js" % r.application)
+                                else:
+                                    s3.scripts.append("/%s/static/scripts/S3/s3.inv_recv_sent_item.min.js" % r.application)
+                                js_global_append = s3.js_global.append
+                                js_global_append('''S3.supply.sendQuantity=%s''' % track_record.quantity)
+                                bins = db(irbtable.track_item_id == track_item_id).select(irbtable.quantity)
+                                if len(bins) > 1:
+                                    js_global_append('''S3.supply.binnedQuantity=%s''' % sum([row.quantity for row in bins]))
+                                
                     else:
                         editable = False
                 else:
                     # status == SHIP_STATUS_IN_PROCESS
                     deletable = True
                     editable = True
-                    insertable = True
+                    if page == "bins":
+                        insertable = False
+                    else:
+                        insertable = True
                     if r.interactive:
                         s3.crud_strings.inv_recv.title_update = \
                         s3.crud_strings.inv_recv.title_display = T("Process Received Shipment")
-                        if r.method in (None, "update"):
+                        if method in (None, "update", "wizard"):
                             # Limit to Bins from this site
                             from .org import org_site_layout_config
                             irbtable = s3db.inv_recv_item_bin
@@ -8809,9 +9398,9 @@ def inv_recv_controller():
                                     for item_id in item_data:
                                         req_items = item_data[item_id]
                                         if len(req_items) == 1:
-                                            req_items[0].pop("req_ref")
+                                            req_items[0].pop("r")
 
-                                    js_global_append('''S3.supply.req_items=%s''' % json.dumps(item_data, separators=SEPARATORS))
+                                    js_global_append('''S3.supply.req_data=%s''' % json.dumps(item_data, separators=SEPARATORS))
 
                                     # Add Packs for all Req Items to avoid AJAX lookups
                                     rows = db(iptable.item_id.belongs(item_ids)).select(iptable.id,
@@ -8867,6 +9456,7 @@ def inv_recv_controller():
             # No Component
             # Configure which fields in inv_recv are readable/writable
             # depending on status
+            method = r.method
             recvtable = s3db.inv_recv
             if record:
                 if status not in (SHIP_STATUS_IN_PROCESS, SHIP_STATUS_SENT):
@@ -8899,16 +9489,35 @@ def inv_recv_controller():
             else:
                 inv_recv_attr(SHIP_STATUS_IN_PROCESS)
                 recvtable.recv_ref.readable = False
-                if r.method and r.method != "read":
+                if method and method != "read":
                     # Don't want to see in Create forms
                     recvtable.status.readable = False
 
-            if r.method == "create" or \
-               (r.method == "update" and record.status == SHIP_STATUS_IN_PROCESS):
+            if method in ("create", "wizard") or \
+               (method == "update" and record.status == SHIP_STATUS_IN_PROCESS):
                 if s3.debug:
                     s3.scripts.append("/%s/static/scripts/S3/s3.inv_recv.js" % r.application)
                 else:
                     s3.scripts.append("/%s/static/scripts/S3/s3.inv_recv.min.js" % r.application)
+                if recvtable.transport_type.writable:
+                    s3.js_global.append(
+'''i18n.AWB='%s'
+i18n.BL='%s'
+i18n.CMR='%s'
+i18n.ref='%s'
+i18n.flight='%s'
+i18n.vessel='%s'
+i18n.vehicle='%s'
+i18n.reg='%s'
+''' % (T("AWB No"),
+       T("B/L No"),
+       T("Waybill/CMR No"),
+       T("Transport Reference"),
+       T("Flight"),
+       T("Vessel"),
+       T("Vehicle Plate Number"),
+       T("Registration Number"),
+       ))
                 # Only allow External Shipment Types (Internal Shipments have the recv auto-created)
                 # - no, need to be able to support Internal Shipments from sites not using the system
                 #recvtable.type.requires = IS_IN_SET(settings.get_inv_recv_types())
@@ -8922,10 +9531,6 @@ def inv_recv_controller():
                     ritable = s3db.inv_req_item
                     if len(site_ids) > 1:
                         query = (rtable.site_id.belongs(site_ids))
-                        if s3.debug:
-                            s3.scripts.append("/%s/static/scripts/S3/s3.inv_recv_multisite.js" % r.application)
-                        else:
-                            s3.scripts.append("/%s/static/scripts/S3/s3.inv_recv_multisite.min.js" % r.application)
                     else:
                        query = (rtable.site_id == site_ids[0])
                     if settings.get_inv_req_workflow():
@@ -8937,10 +9542,57 @@ def inv_recv_controller():
                                            f.represent,
                                            sort = True,
                                            )
+            elif record:
+                transport_type = record.transport_type
+                if transport_type == "Air":
+                    recvtable.transport_ref.label = T("AWB No")
+                    recvtable.registration_no.label = T("Flight")
+                elif transport_type == "Sea":
+                    recvtable.transport_ref.label = T("B/L No")
+                    recvtable.registration_no.label = T("Vessel")
+                elif transport_type == "Road":
+                    recvtable.transport_ref.label = T("Waybill/CMR No")
+                    recvtable.registration_no.label = T("Vehicle Plate Number")
+                elif transport_type == "Hand":
+                    recvtable.transport_ref.readable = False
+                    recvtable.registration_no.readable = False
 
         return True
     s3.prep = prep
-       
+
+    def postp(r, output):
+        if r.interactive:
+            if r.component_name == "track_item" and \
+               not r.component_id:
+                # Add Action Button to Print Item Label
+                if s3.actions == None:
+                    # Normal Action Buttons
+                    s3_action_buttons(r)
+                # Custom Action Buttons
+                s3.actions += [{"icon": ICON.css_class("print"),
+                                "label": s3_str(T("Label")),
+                                "url": URL(args = [r.id,
+                                                   "track_item",
+                                                   "[id]",
+                                                   "label",
+                                                   ],
+                                           ),
+                                "_class": "action-btn",
+                                },
+                               ]
+
+            elif r.method == None and \
+                 settings.get_inv_wizards() and \
+                isinstance(output, dict):
+                try:
+                    # Launch Wizard, not Create form
+                    output["buttons"]["add_btn"]["_href"] = URL(args = "wizard")
+                except KeyError:
+                    pass
+
+        return output
+    s3.postp = postp
+
     return current.rest_controller("inv", "recv",
                                    rheader = inv_recv_rheader,
                                    )
@@ -9043,11 +9695,6 @@ def inv_recv_form (r, **attr):
     table.site_id.label = T("By %(site)s") % {"site": T(settings.get_inv_facility_label())}
     table.site_id.represent = current.s3db.org_site_represent
 
-    record = db(table.id == r.id).select(table.recv_ref,
-                                         limitby = (0, 1),
-                                         ).first()
-    recv_ref = record.recv_ref
-
     list_fields = ["item_id",
                    (T("Weight (kg)"), "item_id$weight"),
                    (T("Volume (m3)"), "item_id$volume"),
@@ -9057,7 +9704,6 @@ def inv_recv_form (r, **attr):
                    "recv_quantity",
                    "currency",
                    "pack_value",
-                   "layout_id",
                    ]
 
     from s3.s3export import S3Exporter
@@ -9066,7 +9712,7 @@ def inv_recv_form (r, **attr):
                     request = r,
                     method = "list",
                     pdf_title = T(settings.get_inv_recv_form_name()),
-                    pdf_filename = recv_ref,
+                    pdf_filename = r.record.recv_ref,
                     list_fields = list_fields,
                     pdf_hide_comments = True,
                     pdf_componentname = "track_item",
@@ -9107,51 +9753,53 @@ def inv_recv_rheader(r):
                                                                 limitby = (0, 1),
                                                                 ).first()
             try:
-                org_id = site.organisation_id
+                organisation_id = site.organisation_id
             except AttributeError:
-                org_id = None
-            logo = s3db.org_organisation_logo(org_id)
-            shipment_details = TABLE(
-                          TR(TD(T(settings.get_inv_recv_form_name()),
-                                _colspan = 2,
-                                _class = "pdf_title",
-                                ),
-                             TD(logo, _colspan=2),
-                             ),
-                          TR(TH("%s: " % table.recv_ref.label),
-                             TD(table.recv_ref.represent(record.recv_ref))
-                             ),
-                          TR(TH("%s: " % table.status.label),
-                             table.status.represent(record.status),
-                             ),
-                          TR(TH("%s: " % table.eta.label),
-                             table.eta.represent(record.eta),
-                             TH("%s: " % table.date.label),
-                             table.date.represent(record.date),
-                             ),
-                          TR(TH("%s: " % table.from_site_id.label),
-                             table.from_site_id.represent(record.from_site_id),
-                             TH("%s: " % table.site_id.label),
-                             table.site_id.represent(record.site_id),
-                             ),
-                          TR(TH("%s: " % table.sender_id.label),
-                             s3_fullname(record.sender_id),
-                             TH("%s: " % table.recipient_id.label),
-                             s3_fullname(record.recipient_id),
-                             ),
-                          TR(TH("%s: " % table.send_ref.label),
-                             table.send_ref.represent(record.send_ref),
-                             # Duplicate! req_ref?
-                             #TH("%s: " % table.recv_ref.label),
-                             #table.recv_ref.represent(record.recv_ref),
-                             ),
-                          TR(TH("%s: " % table.comments.label),
-                             TD(record.comments or "", _colspan=3),
-                             ),
-                           )
+                organisation_id = None
+            from .org import org_organisation_logo
+            logo = org_organisation_logo(organisation_id)
+            shipment_details = TABLE(TR(TD(T(settings.get_inv_recv_form_name()),
+                                           _class = "pdf_title",
+                                           _colspan = 2,
+                                           ),
+                                        TD(logo,
+                                           _colspan = 2,
+                                           ),
+                                        ),
+                                     TR(TH("%s: " % table.recv_ref.label),
+                                        TD(table.recv_ref.represent(record.recv_ref))
+                                        ),
+                                     TR(TH("%s: " % table.status.label),
+                                        table.status.represent(record.status),
+                                        ),
+                                     TR(TH("%s: " % table.eta.label),
+                                        table.eta.represent(record.eta),
+                                        TH("%s: " % table.date.label),
+                                        table.date.represent(record.date),
+                                        ),
+                                     TR(TH("%s: " % table.from_site_id.label),
+                                        table.from_site_id.represent(record.from_site_id),
+                                        TH("%s: " % table.site_id.label),
+                                        table.site_id.represent(record.site_id),
+                                        ),
+                                     TR(TH("%s: " % table.sender_id.label),
+                                        s3_fullname(record.sender_id),
+                                        TH("%s: " % table.recipient_id.label),
+                                        s3_fullname(record.recipient_id),
+                                        ),
+                                     TR(TH("%s: " % table.send_ref.label),
+                                        table.send_ref.represent(record.send_ref),
+                                        # Duplicate! req_ref?
+                                        #TH("%s: " % table.recv_ref.label),
+                                        #table.recv_ref.represent(record.recv_ref),
+                                        ),
+                                     TR(TH("%s: " % table.comments.label),
+                                        TD(record.comments or "", _colspan=3),
+                                        ),
+                                     )
 
             rfooter = TAG[""]()
-            action = DIV()
+            actions = DIV()
             # Find out how many inv_track_items we have for this recv record
             query = (tracktable.recv_id == recv_id) & \
                     (tracktable.deleted == False)
@@ -9163,17 +9811,27 @@ def inv_recv_rheader(r):
                 if current.auth.s3_has_permission("update", "inv_recv",
                                                   record_id = record.id,
                                                   ):
+                    if settings.get_inv_wizards():
+                        actions.append(A(ICON("wizard"),
+                                         " ",
+                                         T("Wizard"),
+                                         _href = URL(args = [record.id,
+                                                             "wizard",
+                                                             ]
+                                                     ),
+                                         _class = "action-btn",
+                                         )
+                                       )
+
                     if cnt > 0:
-                        action.append(A(T("Receive Shipment"),
-                                        _href = URL(c = "inv",
-                                                    f = "recv",
-                                                    args = [record.id,
-                                                            "process",
-                                                            ],
-                                                    ),
-                                        _id = "recv-process",
-                                        _class = "action-btn",
-                                        ))
+                        actions.append(A(T("Receive Shipment"),
+                                         _href = URL(args = [record.id,
+                                                             "process",
+                                                             ],
+                                                     ),
+                                         _id = "recv-process",
+                                         _class = "action-btn",
+                                         ))
                         s3.js_global.append('''i18n.recv_process_confirm="%s"''' % T("Do you want to receive this shipment?"))
                         if s3.debug:
                             s3.scripts.append("/%s/static/scripts/S3/s3.inv_recv_rheader.js" % r.application)
@@ -9188,16 +9846,14 @@ def inv_recv_rheader(r):
             #        if current.auth.s3_has_permission("update", "inv_recv",
             #                                          record_id = record.id,
             #                                          ):
-            #            action.append(A(T("Cancel Shipment"),
-            #                            _href = URL(c = "inv",
-            #                                        f = "recv",
-            #                                        args = [record.id,
-            #                                                "cancel",
-            #                                                ],
-            #                                        ),
-            #                            _id = "recv-cancel",
-            #                            _class = "action-btn",
-            #                            ))
+            #            actions.append(A(T("Cancel Shipment"),
+            #                             _href = URL(args = [record.id,
+            #                                                 "cancel",
+            #                                                 ],
+            #                                         ),
+            #                             _id = "recv-cancel",
+            #                             _class = "action-btn",
+            #                             ))
             #            s3.js_global.append('''i18n.recv_cancel_confirm="%s"''' % T("Do you want to cancel this received shipment? The items will be removed from the Warehouse. This action CANNOT be undone!"))
             #            if s3.debug:
             #                s3.scripts.append("/%s/static/scripts/S3/s3.inv_recv_rheader.js" % r.application)
@@ -9208,7 +9864,7 @@ def inv_recv_rheader(r):
                 msg = T("This shipment contains one line item")
             elif cnt > 1:
                 msg = T("This shipment contains %s items") % cnt
-            shipment_details.append(TR(TH(action,
+            shipment_details.append(TR(TH(actions,
                                           _colspan = 2,
                                           ),
                                        TD(msg),
@@ -9224,38 +9880,37 @@ def inv_recv_rheader(r):
 # ---------------------------------------------------------------------
 def inv_recv_pdf_footer(r):
     """
+        Default Footer for PDF of GRN
+        - called by inv_recv_form
+        - has come from Red Cross
     """
 
-    record = r.record
-    if record:
-        T = current.T
-        footer = DIV(TABLE(TR(TH(T("Delivered By")),
-                              TH(T("Date")),
-                              TH(T("Function")),
-                              TH(T("Name")),
-                              TH(T("Signature")),
-                              ),
-                           TR(TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              ),
-                           TR(TH(T("Received By")),
-                              TH(T("Date")),
-                              TH(T("Function")),
-                              TH(T("Name")),
-                              TH(T("Signature / Stamp")),
-                              ),
-                           TR(TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              ),
-                           ))
-        return footer
-    return None
+    T = current.T
+    return DIV(TABLE(TR(TH(T("Delivered By")),
+                        TH(T("Date")),
+                        TH(T("Function")),
+                        TH(T("Name")),
+                        TH(T("Signature")),
+                        ),
+                     TR(TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        ),
+                     TR(TH(T("Received By")),
+                        TH(T("Date")),
+                        TH(T("Function")),
+                        TH(T("Name")),
+                        TH(T("Signature / Stamp")),
+                        ),
+                     TR(TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        ),
+                     ))
 
 # =============================================================================
 def inv_recv_process(r, **attr):
@@ -9291,12 +9946,12 @@ def inv_recv_process(r, **attr):
     status = record.status
     if status == SHIP_STATUS_RECEIVED:
         r.error(405, T("This shipment has already been received."),
-                tree = URL(args = [recv_id]),
+                tree = '"%s"' % URL(args = [recv_id]),
                 )
 
     elif status == SHIP_STATUS_CANCEL:
         r.error(405, T("This shipment has already been received & subsequently canceled."),
-                tree = URL(args = [recv_id]),
+                tree = '"%s"' % URL(args = [recv_id]),
                 )
 
     db = current.db
@@ -9394,14 +10049,20 @@ def inv_recv_process(r, **attr):
                 req_item_ids.append(req_item_id)
 
     if req_item_ids:
-        # Lookup req_items
+        # Lookup req_items which are for this Site
+        # - do not update status for Requests for other Sites
+        # - (i.e. assume that we are just an intermediate transit stop for such items)
+        # - @ToDo: We could update the Transit Status for these, in case that hasn't yet been done
         rrtable = s3db.inv_req
         ritable = s3db.inv_req_item
-        req_items = db(ritable.id.belongs(req_item_ids)).select(ritable.id,
-                                                                ritable.item_pack_id,
-                                                                ritable.quantity_fulfil,
-                                                                ritable.req_id,
-                                                                )
+        query = (ritable.id.belongs(req_item_ids)) & \
+                (ritable.req_id == rrtable.id) & \
+                (rrtable.site_id == site_id)
+        req_items = db(query).select(ritable.id,
+                                     ritable.item_pack_id,
+                                     ritable.quantity_fulfil,
+                                     ritable.req_id,
+                                     )
         item_pack_ids += [row.item_pack_id for row in req_items]
         req_ids = [row.req_id for row in req_items]
         req_items = {row.id: row for row in req_items}
@@ -9414,9 +10075,9 @@ def inv_recv_process(r, **attr):
 
     if inv_item_ids:
         # Lookup sending inventory source_types
-        stock_items = db(iitable.belongs(set(inv_item_ids))).select(iitable.id,
-                                                                    iitable.source_type,
-                                                                    )
+        stock_items = db(iitable.id.belongs(set(inv_item_ids))).select(iitable.id,
+                                                                       iitable.source_type,
+                                                                       )
         stock_items = {s.id: s.source_type for s in stock_items}
 
     # Move all the items into the Stock, update any Requisitions & make any Adjustments
@@ -9502,7 +10163,7 @@ def inv_recv_process(r, **attr):
         else:
             # Add a new item
             if send_inv_item_id:
-                source_type = stock_items[send_inv_item_id].source_type
+                source_type = stock_items[send_inv_item_id]
             elif DONATION:
                 source_type = 1 # Donation
             else:
@@ -9536,14 +10197,16 @@ def inv_recv_process(r, **attr):
         # If this item is linked to a Requisition, then update the quantity fulfil
         req_item_id = track_item.req_item_id
         if req_item_id:
-            req_item = req_items[req_item_id]
-            req_pack_id = req_item.item_pack_id
-            if req_pack_id == item_pack_id:
-                quantity_fulfil = req_item.quantity_fulfil + recv_quantity
-            else:
-                # Adjust Quantities
-                quantity_fulfil = req_item.quantity_fulfil + (recv_quantity * packs[item_pack_id] / packs[req_pack_id])
-            req_item.update_record(quantity_fulfil = quantity_fulfil)
+            req_item = req_items.get(req_item_id)
+            if req_item:
+                # For this Site: Update status
+                req_pack_id = req_item.item_pack_id
+                if req_pack_id == item_pack_id:
+                    quantity_fulfil = req_item.quantity_fulfil + recv_quantity
+                else:
+                    # Adjust Quantities
+                    quantity_fulfil = req_item.quantity_fulfil + (recv_quantity * packs[item_pack_id] / packs[req_pack_id])
+                req_item.update_record(quantity_fulfil = quantity_fulfil)
 
         # Update the track_item
         data = {"recv_inv_item_id": inv_item_id,
@@ -9623,7 +10286,8 @@ def inv_req_add_from_template(req_id):
         Add an Inventory Requisition from a Template
         - scheduled function to create recurring requests
 
-        @param req_id: record ID of the request template
+        Args:
+            req_id: record ID of the request template
     """
 
     db = current.db
@@ -9685,7 +10349,7 @@ def inv_req_add_from_template(req_id):
 def inv_req_approve(r, **attr):
     """
         Approve a Request
-        - called via POST from inv_send_rheader
+        - called via POST from inv_req_rfooter
         - called via JSON method to reduce request overheads
     """
 
@@ -9715,7 +10379,7 @@ def inv_req_approve(r, **attr):
         error = T("Can only Approve Submitted Requests")
         current.session.error = error
         r.error(409, error,
-                tree = URL(args = [req_id]),
+                tree = '"%s"' % URL(args = [req_id]),
                 )
 
     approvers = inv_req_approvers(record.site_id)
@@ -9735,7 +10399,7 @@ def inv_req_approve(r, **attr):
         error = T("You have already Approved this Request")
         current.session.warning = error
         r.error(409, error,
-                tree = URL(args = [req_id]),
+                tree = '"%s"' % URL(args = [req_id]),
                 )
 
     ritable = s3db.inv_req_item
@@ -9759,7 +10423,7 @@ def inv_req_approve(r, **attr):
                 error = T("You need to Match Items in this Request")
                 current.session.warning = error
                 r.error(409, error,
-                        tree = URL(args = [req_id, "req_item"]),
+                        tree = '"%s"' % URL(args = [req_id, "req_item"]),
                         )
 
     # Add record to show that we have approved request
@@ -9840,7 +10504,7 @@ def inv_req_copy_all(r, **attr):
     s3db = current.s3db
     table = s3db.inv_req
     settings = current.deployment_settings
-    now = current.request.now
+    now = current.request.utcnow
 
     record = r.record
     req_id = record.id
@@ -9995,7 +10659,8 @@ def inv_req_controller(template = False):
     db = current.db
     s3db = current.s3db
     auth = current.auth
-    s3 = current.response.s3
+    response = current.response
+    s3 = response.s3
     settings = current.deployment_settings
 
     if not template:
@@ -10020,6 +10685,12 @@ def inv_req_controller(template = False):
                    component_name = "req_item",
                    method = "from",
                    action = inv_req_from,
+                   )
+
+        # Print Picking List (for settings.inv_req_reserve_items)
+        set_method("inv", "req",
+                   method = "pick_list",
+                   action = inv_req_pick_list,
                    )
 
         # Submit Request for Approval
@@ -10059,16 +10730,11 @@ def inv_req_controller(template = False):
                    )
 
     def prep(r):
-
         table = r.table
-
         record = r.record
-        use_workflow = settings.get_inv_req_workflow()
-        workflow_status = record.workflow_status if record else None
 
         if r.interactive:
             get_vars = r.get_vars
-
             if "req.site_id" in get_vars:
                 # Called from 'Make new request' button on [siteinstance]/req page
                 table.site_id.default = get_vars.get("req.site_id")
@@ -10110,6 +10776,7 @@ def inv_req_controller(template = False):
                     if r.method != "from":
                         ctable = r.component.table
                         ctable.site_id.writable = ctable.site_id.readable = False
+
                         if not settings.get_inv_req_item_quantities_writable():
                             ctable.quantity_commit.readable = \
                             ctable.quantity_commit.writable = False
@@ -10117,13 +10784,219 @@ def inv_req_controller(template = False):
                             ctable.quantity_transit.writable = False
                             ctable.quantity_fulfil.readable = \
                             ctable.quantity_fulfil.writable = False
-                        if use_workflow and workflow_status in (3, 4, 5): # Approved, Completed, Cancelled
+
+                        use_workflow = settings.get_inv_req_workflow()
+                        if use_workflow and \
+                           record.workflow_status in (3, 4, 5): # Approved, Completed, Cancelled
                             # Lock all fields
                             s3db.configure("inv_req_item",
                                            deletable = False,
                                            editable = False,
                                            insertable = False,
                                            )
+
+                        if settings.get_inv_req_reserve_items():
+                            req_item_id = r.component_id
+                            if not req_item_id:
+                                if use_workflow:
+                                    if record.workflow_status in (2, 3): # Submitted for Approval, Approved
+                                        assignable = True
+                                    else:
+                                        assignable = False
+                                else:
+                                    assignable = True
+                                if assignable:
+                                    # Add to List Fields
+                                    list_fields = r.component.get_config("list_fields")
+                                    list_fields.insert(-3, "quantity_reserved")
+                            else:
+                                req_item = db(ctable.id == req_item_id).select(ctable.site_id,
+                                                                               ctable.quantity,
+                                                                               ctable.item_id,
+                                                                               ctable.item_pack_id,
+                                                                               limitby = (0, 1),
+                                                                               ).first()
+                                site_id = req_item.site_id
+                                if not site_id:
+                                    # Replace the NONE with a button
+                                    ctable.site_id.represent = lambda v: A(T("Request from Facility"),
+                                                                           _href = URL(f = "req_item",
+                                                                                       args = [req_item_id,
+                                                                                               "inv_item",
+                                                                                               ],
+                                                                                       ),
+                                                                           _class = "action-btn",
+                                                                           )
+                                else:
+                                    # Item has been allocated to come from a Site
+                                    # Don't allow basic fields to be edited
+                                    ctable.item_id.writable = False
+                                    ctable.item_id.comment = None
+                                    ctable.item_pack_id.writable = False
+                                    ctable.item_pack_id.comment = None
+                                    ctable.quantity.writable = False
+
+                                    # Limit to Bins from this site with Inventory
+                                    iitable = s3db.inv_inv_item
+                                    ibtable = s3db.inv_inv_item_bin
+                                    query = (iitable.site_id == site_id) & \
+                                            (iitable.item_id == req_item.item_id) & \
+                                            (iitable.quantity > 0) & \
+                                            ((iitable.expiry_date >= r.utcnow) | ((iitable.expiry_date == None))) & \
+                                            (iitable.status == 0)
+                                    left = ibtable.on(ibtable.inv_item_id == iitable.id)
+                                    inv_rows = db(query).select(iitable.id,
+                                                                iitable.quantity,
+                                                                iitable.item_pack_id,
+                                                                ibtable.layout_id,
+                                                                ibtable.quantity,
+                                                                left = left,
+                                                                )
+                                    if inv_rows:
+                                        # Allow Items to be Reserved
+                                        ctable.quantity_reserved.readable = \
+                                        ctable.quantity_reserved.writable = True
+
+                                        layout_ids = []
+                                        req_pack_id = req_item.item_pack_id
+                                        pack_ids = [req_pack_id]
+                                        # Sort by inv_item_id
+                                        inv_items = {}
+                                        for row in inv_rows:
+                                            inv_item = row.inv_inv_item
+                                            inv_item_id = inv_item.id
+                                            if inv_item_id not in inv_items:
+                                                pack_id = inv_item.item_pack_id
+                                                if pack_id not in pack_ids:
+                                                    pack_ids.append(pack_id)
+                                                inv_items[inv_item_id] = {"q": inv_item.quantity,
+                                                                          "p": pack_id,
+                                                                          "b": {},
+                                                                          }
+                                            item_bin = row.inv_inv_item_bin
+                                            layout_id = item_bin.layout_id
+                                            if layout_id:
+                                                inv_items[inv_item_id]["b"][layout_id] = item_bin.quantity
+
+                                        stock_quantity = 0
+
+                                        # Lookup Packs
+                                        ptable = s3db.supply_item_pack
+                                        len_pack_ids = len(pack_ids)
+                                        if len_pack_ids == 1:
+                                            query = (ptable.id == pack_ids[0])
+                                            fields = [ptable.name]
+                                        else:
+                                            query = (ptable.id.belongs(pack_ids))
+                                            fields = [ptable.id,
+                                                      ptable.name,
+                                                      ptable.quantity,
+                                                      ]
+                                        packs = db(query).select(*fields,
+                                                                 limitby = (0, len_pack_ids),
+                                                                 )
+                                        if len_pack_ids == 1:
+                                            # No need to adjust Inventory Quantity to match Req Quantity
+                                            pack_name = packs.first().name
+                                            for inv_item_id in inv_items:
+                                                inv_item = inv_items[inv_item_id]
+                                                stock_quantity += inv_item["q"]
+                                        else:
+                                            # Adjust Inventory Quantity to match Req Quantity
+                                            packs = {p.id: {n: p.name,
+                                                            q: p.quantity,
+                                                            } for p in packs}
+                                            req_pack = packs[req_pack_id]
+                                            pack_name = req_pack["n"]
+                                            req_pack_quantity = req_pack["q"]
+                                            for inv_item_id in inv_items:
+                                                inv_item = inv_items[inv_item_id]
+                                                inv_pack_id = inv_item["p"]
+                                                if inv_pack_id == req_pack_id:
+                                                    stock_quantity += inv_item["q"]
+                                                else:
+                                                    inv_pack_quantity = packs[inv_pack_id]["q"]
+                                                    inv_quantity = inv_item["q"]
+                                                    inv_quantity = inv_quantity * inv_pack_quantity / req_pack_quantity
+                                                    inv_item["q"] = inv_quantity
+                                                    stock_quantity += inv_quantity
+                                                    inv_bins = inv_item["b"]
+                                                    for layout_id in inv_bins:
+                                                        bin_quantity = inv_bins[layout_id]
+                                                        bin_quantity = bin_quantity * inv_pack_quantity / req_pack_quantity
+                                                        inv_bins[layout_id] = bin_quantity
+                                                del inv_item["p"]
+
+                                        rbtable = s3db.inv_req_item_inv
+                                        req_bins = db(rbtable.req_item_id == req_item_id).select(rbtable.inv_item_id,
+                                                                                                 rbtable.layout_id,
+                                                                                                 rbtable.quantity,
+                                                                                                 )
+                                        binned_quantity = sum([row.quantity for row in req_bins])
+
+                                        inv_fields = ["inv_item_id",
+                                                      "quantity",
+                                                      ]
+
+                                        layout_ids = set([row["inv_inv_item_bin.layout_id"] for row in inv_rows] + [row.layout_id for row in req_bins])
+                                        layout_ids_len = len(layout_ids)
+                                        if layout_ids_len:
+                                            # Add/Filter Bin field
+                                            inv_fields.insert(1, "layout_id")
+
+                                            field = rbtable.layout_id
+                                            requires = field.requires
+                                            if hasattr(requires, "other"):
+                                                requires.other.set_filter(filterby = "id",
+                                                                          filter_opts = layout_ids,
+                                                                          )
+                                            else:
+                                                requires.set_filter(filterby = "id",
+                                                                    filter_opts = layout_ids,
+                                                                    )
+                                            if layout_ids_len == 1:
+                                                field.widget.filter = (s3db.org_site_layout.id == list(layout_ids)[0])
+                                            else:
+                                                field.widget.filter = (s3db.org_site_layout.id.belongs(layout_ids))
+
+                                        rbtable.inv_item_id.requires.set_filter(filterby = "id",
+                                                                                filter_opts = inv_items,
+                                                                                )
+
+                                        crud_form = S3SQLCustomForm("item_id",
+                                                                    "item_pack_id",
+                                                                    "quantity",
+                                                                    "quantity_reserved",
+                                                                    "site_id",
+                                                                    S3SQLInlineComponent("req_item_inv",
+                                                                                         label = T("Assign from Inventory"),
+                                                                                         fields = inv_fields,
+                                                                                         ),
+                                                                    "comments",
+                                                                    # Remove Reserved Items from Stock
+                                                                    postprocess = inv_req_item_postprocess,
+                                                                    )
+                                        s3db.configure("inv_req_item",
+                                                       crud_form = crud_form,
+                                                       )
+
+                                        # @ToDo:
+                                        # Add to list_fields
+
+                                        # Pass data to s3.inv_req_item.js
+                                        # - show stock quantity
+                                        # - manage bins
+                                        req_data = {"q": stock_quantity,
+                                                    "r": req_item.quantity,
+                                                    "p": pack_name,
+                                                    "s": site_id,
+                                                    "i": inv_items,
+                                                    }
+                                        if binned_quantity:
+                                            req_data["b"] = binned_quantity
+                                        s3.js_global.append('''S3.supply.reqData=%s''' % json.dumps(req_data, separators=SEPARATORS))
+                                    else:
+                                        response.error = T("The Site Requested From has no Inventory available of this Item")
 
                 elif r.component.alias == "job":
                     current.s3task.configure_tasktable_crud(
@@ -10136,6 +11009,9 @@ def inv_req_controller(template = False):
             else:
                 if r.id:
                     table.is_template.readable = table.is_template.writable = False
+
+                if not table.requester_id.writable:
+                    table.requester_id.comment = None
 
                 keyvalue = settings.get_ui_auto_keyvalue()
                 if keyvalue:
@@ -10199,24 +11075,25 @@ def inv_req_controller(template = False):
                     if settings.get_inv_req_inline_forms():
                         # Use inline form
                         inv_req_inline_form(method)
-                    if use_workflow and workflow_status in (1, 2, 5): # Draft, Submitted, Cancelled
-                        # Hide individual statuses
-                        table = db.inv_req
-                        table.commit_status.readable = table.commit_status.writable = False
-                        table.transit_status.readable = table.transit_status.writable = False
-                        table.fulfil_status.readable = table.fulfil_status.writable = False
-                    if method != "read":
-                        s3.scripts.append("/%s/static/scripts/S3/s3.req_update.js" % r.application)
-                        if use_workflow and workflow_status in (3, 4, 5): # Approved, Completed, Cancelled
+
+                    if settings.get_inv_req_workflow():
+                        workflow_status = record.workflow_status if record else None
+                        if workflow_status in (1, 2, 5): # Draft, Submitted, Cancelled
+                            # Hide individual statuses
+                            table = db.inv_req
+                            table.commit_status.readable = table.commit_status.writable = False
+                            table.transit_status.readable = table.transit_status.writable = False
+                            table.fulfil_status.readable = table.fulfil_status.writable = False
+                        else:
+                            # Block Delete
+                            s3db.configure("inv_req",
+                                           deletable = False,
+                                           )
+                        if workflow_status in (3, 4, 5): # Approved, Completed, Cancelled
                             # Lock all fields
                             s3db.configure("inv_req",
                                            editable = False,
                                            )
-                    if use_workflow and workflow_status not in (1, 2, 5, None): # Draft, Submitted, Cancelled or Legacy
-                        # Block Delete
-                        s3db.configure("inv_req",
-                                       deletable = False,
-                                       )
 
                 elif method == "map":
                     # Tell the client to request per-feature markers
@@ -10229,9 +11106,7 @@ def inv_req_controller(template = False):
             pass
 
         elif r.representation == "geojson":
-            # Default anyway
-            # from s3db.inv import inv_ReqRefRepresent
-            #table.req_ref.represent = inv_ReqRefRepresent()
+            table.req_ref.represent = inv_ReqRefRepresent()
             # Load these models now as they'll be needed when we encode
             mtable = s3db.gis_marker
             s3db.configure("inv_req",
@@ -10409,9 +11284,9 @@ $.filterOptionsS3({
             if r.method is None:
                 # Customise Action Buttons
                 if r.component:
-                    S3CRUD.action_buttons(r,
-                                          deletable = s3db.get_config(r.component.tablename, "deletable"),
-                                          )
+                    s3_action_buttons(r,
+                                      deletable = s3db.get_config(r.component.tablename, "deletable"),
+                                      )
                     if r.component_name == "req_item" and \
                        settings.get_inv_req_prompt_match():
                         table = r.component.table
@@ -10499,7 +11374,7 @@ $.filterOptionsS3({
                             # Stock: Open Tab for Items
                             r.next = URL(args = [form_vars.id, "req_item"])
                     else:
-                        S3CRUD.action_buttons(r, deletable =False)
+                        s3_action_buttons(r, deletable=False)
                         # @ToDo: Switch Action buttons which change data to POST
                         if not template and settings.get_inv_use_commit():
                             # This is appropriate to both Items and People
@@ -10682,7 +11557,7 @@ def inv_req_details(row):
                  for item in items]
         return ",".join(items)
 
-    return current.messages["NONE"]
+    return NONE
 
 # =============================================================================
 def inv_req_drivers(row):
@@ -10705,24 +11580,22 @@ def inv_req_drivers(row):
             (stable.req_ref == req_ref)
     drivers = current.db(query).select(stable.driver_name,
                                        stable.driver_phone,
-                                       stable.vehicle_plate_no,
+                                       stable.registration_no,
                                        )
     if drivers:
         drivers = ["%s %s %s" % (driver.driver_name or "",
                                  driver.driver_phone or "",
-                                 driver.vehicle_plate_no or "") \
+                                 driver.registration_no or "") \
                    for driver in drivers]
         return ",".join(drivers)
 
-    return current.messages["NONE"]
+    return NONE
 
 # =============================================================================
 def inv_req_form(r, **attr):
     """
         Generate a PDF of a Request Form
     """
-
-    record = r.record
 
     pdf_componentname = "req_item"
     list_fields = ["item_id",
@@ -10734,7 +11607,7 @@ def inv_req_form(r, **attr):
                    ]
 
     if current.deployment_settings.get_inv_use_req_number():
-        filename = record.req_ref
+        filename = r.record.req_ref
     else:
         filename = None
 
@@ -10749,7 +11622,7 @@ def inv_req_form(r, **attr):
                     pdf_hide_comments = True,
                     pdf_componentname = pdf_componentname,
                     pdf_header_padding = 12,
-                    #pdf_footer = inv_recv_pdf_footer,
+                    #pdf_footer = inv_req_pdf_footer,
                     pdf_table_autogrow = "B",
                     pdf_orientation = "Landscape",
                     **attr
@@ -10759,7 +11632,7 @@ def inv_req_form(r, **attr):
 def inv_req_submit(r, **attr):
     """
         Submit a Request for Approval
-        - called via POST from inv_send_rheader
+        - called via POST from inv_req_rfooter
         - called via JSON method to reduce request overheads
     """
 
@@ -10789,7 +11662,7 @@ def inv_req_submit(r, **attr):
         error = T("Can only Submit Draft Requests")
         current.session.error = error
         r.error(409, error,
-                tree = URL(args = [req_id]),
+                tree = '"%s"' % URL(args = [req_id]),
                 )
 
     db = current.db
@@ -10821,8 +11694,11 @@ def inv_req_submit(r, **attr):
                                  utable.language,
                                  )
     if not approvers:
-        current.session.error = current.T("No Request Approver defined")
-        redirect(URL(args = req_id))
+        error = T("No Request Approver defined")
+        current.session.error = error
+        r.error(409, error,
+                tree = '"%s"' % URL(args = [req_id]),
+                )
 
     T = current.T
     on_req_submit = s3db.get_config("inv_req", "on_req_submit")
@@ -10886,8 +11762,7 @@ def inv_req_submit(r, **attr):
 def inv_req_from(r, **attr):
     """
         Request From Inventory
-        - called from inv_req_item_inv_item
-        - called via POST from inv_send_rheader
+        - called via POST from inv_req_item_inv_item
         - called via JSON method to reduce request overheads
     """
 
@@ -10924,11 +11799,12 @@ def inv_req_from(r, **attr):
     db(s3db.inv_req_item.id == req_item_id).update(site_id = site_id)
     onaccepts = s3db.get_config("inv_req_item", "onaccept")
     if onaccepts:
-        record = Storage(id = req_item_id,
-                         req_id = req_id,
-                         site_id = site_id,
-                         )
-        form = Storage(vars = record)
+        form = Storage(vars = Storage(id = req_item_id,
+                                      req_id = req_id,
+                                      site_id = site_id, # For custom onaccepts (e.g. to set realm_entity)
+                                      ),
+                       record = Storage(site_id = None),
+                       )
         if not isinstance(onaccepts, (list, tuple)):
             onaccepts = [onaccepts]
         [onaccept(form) for onaccept in onaccepts]
@@ -10953,7 +11829,8 @@ def inv_req_inline_form(method):
         Function to be called from REST prep functions
          - to add req_item components as inline forms
 
-        @param method: the URL request method
+        Args:
+            method: the URL request method
     """
 
     T = current.T
@@ -11228,10 +12105,13 @@ def inv_req_item_inv_item(r, **attr):
 
     s3.no_sspag = True # pagination won't work with 2 datatables on one page @todo: test
 
-    itable = s3db.inv_inv_item
+    iitable = s3db.inv_inv_item
     # Get list of matching inventory items
-    s3.filter = (itable.item_id == item_id) & \
-                (itable.site_id != site_id)
+    s3.filter = (iitable.item_id == item_id) & \
+                (iitable.site_id != site_id) & \
+                (iitable.quantity > 0) & \
+                ((iitable.expiry_date >= r.utcnow) | ((iitable.expiry_date == None))) & \
+                (iitable.status == 0)
     # Tweak CRUD String for this context
     s3.crud_strings["inv_inv_item"].msg_list_empty = T("No Inventories currently have this item in stock")
 
@@ -11248,7 +12128,7 @@ def inv_req_item_inv_item(r, **attr):
         alt_item_ids = [alt_item_row.alt_item_id for alt_item_row in alt_item_rows]
 
         if alt_item_ids:
-            s3.filter = (itable.item_id.belongs(alt_item_ids))
+            s3.filter = (iitable.item_id.belongs(alt_item_ids))
             inv_items_alt = current.rest_controller("inv", "inv_item")
             output["items_alt"] = inv_items_alt["items"]
         else:
@@ -11258,8 +12138,9 @@ def inv_req_item_inv_item(r, **attr):
 
     if settings.get_inv_req_order_item():
         output["order_btn"] = A(T("Order Item"),
-                                _href = URL(c="inv", f="req_item",
-                                            args = [req_item_id, "order"]
+                                _href = URL(args = [req_item_id,
+                                                    "order",
+                                                    ]
                                             ),
                                 _id = "req-order",
                                 _class = "action-btn",
@@ -11269,8 +12150,7 @@ def inv_req_item_inv_item(r, **attr):
 
     s3.action_methods = ("inv_item",)
     s3.actions = [{"label": s3_str(T("Request From")),
-                   "url": URL(c = "inv",
-                              f = "req",
+                   "url": URL(f = "req",
                               args = [req_id,
                                       "req_item",
                                       req_item_id,
@@ -11295,7 +12175,7 @@ def inv_req_item_inv_item(r, **attr):
 def inv_req_item_order(r, **attr):
     """
         Create an inv_order_item from a inv_req_item
-        - called via POST from inv_send_rheader
+        - called via POST from inv_req_item_inv_item
         - called via JSON method to reduce request overheads
     """
 
@@ -11325,6 +12205,349 @@ def inv_req_item_order(r, **attr):
                                    args = [req_id, "req_item"],
                                    ),
                        }, separators=SEPARATORS)
+
+# =============================================================================
+def inv_req_item_postprocess(form):
+    """
+        Called when using settings.inv.req_reserve_items
+        - remove reserved items from stock
+
+        If the stock to take from hasn't been selected then we auto-allocate.
+        We optimise to use the stock which expires soonest
+
+        If the bin to take from hasn't been selected then we auto-allocate.
+        We optimise to minimise the number of Bins remaining for an Item
+        (An alternative would be to optimise this Pick)
+
+        Stock cards, Request Status and Warehouse Free Capacity not updated until
+        Shipment actually Sent (inv_send_process)
+    """
+
+    record = form.record
+    req_item_id = form.vars.id
+
+    db = current.db
+    s3db = current.s3db
+
+    table = s3db.inv_req_item
+    rbtable = s3db.inv_req_item_inv
+    iitable = s3db.inv_inv_item
+    ibtable = s3db.inv_inv_item_bin
+    iptable = s3db.supply_item_pack
+
+    # Read the Request Item, including Stock Reservations
+    query = (table.id == req_item_id) & \
+            (table.item_pack_id == iptable.id)
+    left = rbtable.on(rbtable.req_item_id == table.id)
+    rows = db(query).select(table.site_id,
+                            table.item_id,
+                            table.quantity_reserved,
+                            iptable.quantity,
+                            rbtable.id,
+                            rbtable.inv_item_id,
+                            rbtable.layout_id,
+                            rbtable.quantity,
+                            left = left,
+                            )
+
+    # Sort by Inv Item ID
+    row = rows.first()
+    req_item_row = row["inv_req_item"]
+    quantity_reserved = req_item_row.quantity_reserved
+    pack_row = row["supply_item_pack"]
+    req_pack_quantity = pack_row.quantity
+    inv_reservations = {}
+    reserved_quantity = 0
+    binned_quantity = 0
+    for row in rows:
+        inv_row = row["inv_req_item_inv"]
+        inv_quantity = inv_row.quantity
+        if inv_quantity:
+            inv_item_id = inv_row.inv_item_id
+            if inv_item_id not in inv_reservations:
+                inv_reservations[inv_item_id] = {"bins": {},
+                                                 "quantity": 0,
+                                                 "binned_quantity": 0,
+                                                 }
+            inv_reservations[inv_item_id]["quantity"] += inv_quantity
+            reserved_quantity += inv_quantity
+            layout_id = inv_row.layout_id
+            if layout_id:
+                binned_quantity += inv_quantity
+                inv_reservations[inv_item_id]["binned_quantity"] += inv_quantity
+            inv_reservations[inv_item_id]["bins"][layout_id] = {"id": inv_row.id,
+                                                                "layout_id": layout_id,
+                                                                "quantity": inv_quantity,
+                                                                }
+
+    # Read the Inv Items, including Bins
+    if reserved_quantity == quantity_reserved:
+        # Reservation has been completely allocated to stock items
+        if len(inv_reservations) == 1:
+            query = (iitable.id == list(inv_reservations)[0])
+        else:
+            query = (iitable.id.belongs(inv_reservations))
+    else:
+        # We need to auto-allocate some of the stock
+        query = (iitable.site_id == req_item_row.site_id) & \
+                (iitable.item_id == req_item_row.item_id) & \
+                (iitable.quantity > 0) & \
+                ((iitable.expiry_date >= current.request.utcnow) | ((iitable.expiry_date == None))) & \
+                (iitable.status == 0)
+
+    query &= (iitable.item_pack_id == iptable.id)
+    left = ibtable.on(ibtable.inv_item_id == iitable.id)
+    rows = db(query).select(iitable.id,
+                            iitable.quantity,
+                            iitable.expiry_date,
+                            iptable.quantity,
+                            ibtable.id,
+                            ibtable.layout_id,
+                            ibtable.quantity,
+                            left = left,
+                            )
+
+    # Sort by Inv Item ID
+    inv_items_dict = {}
+    for row in rows:
+        inv_row = row["inv_inv_item"]
+        inv_item_id = inv_row.id
+        if inv_item_id not in inv_items_dict:
+            inv_items_dict[inv_item_id] = {"id": inv_item_id,
+                                           "expiry_date": inv_row.expiry_date,
+                                           "quantity": inv_row.quantity,
+                                           "pack_quantity": row["supply_item_pack.quantity"],
+                                           "bins": [],
+                                           }
+        bin_row = row["inv_inv_item_bin"]
+        bin_quantity = bin_row.quantity
+        if bin_quantity:
+            inv_items_dict[inv_item_id]["bins"].append({"id": bin_row.id,
+                                                        "layout_id": bin_row.layout_id,
+                                                        "quantity": bin_quantity,
+                                                        })
+
+    # Convert to list to sort by Expiry Date
+    inv_items = []
+    iiappend = inv_items.append
+    for inv_item_id in inv_items_dict:
+        iiappend(inv_items_dict[inv_item_id])
+
+    #if record: # will always be an update form
+    # Read the old Reservations Data
+    old_inv = {}
+    old_inv_data = record.sub_defaultreq_item_inv
+    if old_inv_data:
+        old_inv_data = json.loads(old_inv_data) or {}
+        old_inv_data = old_inv_data.get("data", [])
+        for row in old_inv_data:
+            inv_quantity = row["quantity"]["value"]
+            if inv_quantity:
+                inv_quantity = float(inv_quantity)
+                inv_item_id = row["inv_item_id"]["value"]
+                if inv_item_id not in old_inv:
+                    old_inv[inv_item_id] = {"bins": {},
+                                            "quantity": 0,
+                                            }
+                old_inv[inv_item_id]["quantity"] += inv_quantity
+                layout_id = row["layout_id"]["value"]
+                if layout_id:
+                    old_inv[inv_item_id]["bins"][layout_id] = inv_quantity
+
+    from operator import itemgetter
+    if quantity_reserved > reserved_quantity:
+        # Auto-allocate Stock
+        # - optimise to use stock with higher Expiry Date first
+        inv_items.sort(key = itemgetter("expiry_date"),
+                       reverse = True,
+                       )
+        to_allocate = (quantity_reserved - reserved_quantity) * req_pack_quantity
+        while (to_allocate > 0):
+            for inv_item in inv_items:
+                inv_item_id = inv_item["id"]
+                inv_pack_quantity = inv_item["pack_quantity"]
+                inv_quantity = inv_item["quantity"] * inv_pack_quantity
+                #if record# Always an Update form                
+                # Add previously allocated inventory
+                old_inv_row = old_inv.get(inv_item_id)
+                if old_inv_row:
+                    old_quantity = old_inv_row["quantity"]
+                    if old_quantity:
+                        inv_quantity += (old_quantity * inv_pack_quantity)
+                if inv_item_id in inv_reservations:
+                    req_inv = inv_reservations[inv_item_id]
+                    reservation_quantity = req_inv["quantity"] * req_pack_quantity
+                    if inv_quantity > reservation_quantity:
+                        # Allocate more of this stock
+                        if inv_quantity >= (to_allocate + reservation_quantity):
+                            # Allocate all from this stock
+                            new_quantity = (to_allocate + reservation_quantity) / req_pack_quantity
+                            req_inv["quantity"] = new_quantity
+                            to_allocate = 0
+                            break
+                        else:
+                            # Allocate what we can from this stock
+                            new_quantity = inv_quantity / req_pack_quantity
+                            req_inv["quantity"] = new_quantity
+                            to_allocate -= (inv_quantity - reservation_quantity)
+                else:
+                    if inv_quantity >= to_allocate:
+                        # Allocate all from this stock
+                        new_quantity = to_allocate / req_pack_quantity
+                        inv_reservations[inv_item_id] = {"bins": {},
+                                                         "quantity": new_quantity,
+                                                         "binned_quantity": 0,
+                                                         }
+                        to_allocate = 0
+                        break
+                    else:
+                        # Allocate what we can from this stock
+                        new_quantity = inv_quantity / req_pack_quantity
+                        inv_reservations[inv_item_id] = {"bins": {},
+                                                         "quantity": new_quantity,
+                                                         "binned_quantity": 0,
+                                                         }
+                        to_allocate -= inv_quantity
+
+    if quantity_reserved > binned_quantity:
+        # Auto-allocate Bins
+        # - optimise to use bins with lower quantity first
+        to_allocate = (quantity_reserved - binned_quantity) * req_pack_quantity
+        while (to_allocate > 0):
+            for inv_item_id in inv_reservations:
+                req_inv = inv_reservations[inv_item_id]
+                reservation_quantity = req_inv["quantity"]
+                binned_quantity = req_inv["binned_quantity"]
+                unbinned_quantity = reservation_quantity - binned_quantity
+                if not unbinned_quantity:
+                    # This Item is fully allocated from bins
+                    continue
+                #if record# Always an Update form                
+                # Add previously allocated inventory
+                old_inv_row = old_inv.get(inv_item_id)
+                if old_inv_row:
+                    old_quantity = old_inv_row["quantity"]
+                    if old_quantity:
+                        old_bins = old_inv_row["bins"]
+                    else:
+                        old_bins = {}
+                else:
+                    old_bins = {}
+                req_bins = req_inv["bins"]
+                inv_item = inv_items_dict[inv_item_id]
+                inv_pack_quantity = inv_item["pack_quantity"]
+                inv_bins = inv_item["bins"]
+                inv_bins.sort(key = itemgetter("quantity"))
+                while (unbinned_quantity > 0):
+                    for inv_bin in inv_bins:
+                        layout_id = inv_bin["layout_id"]
+                        inv_quantity = inv_bin["quantity"] * inv_pack_quantity
+                        old_quantity = old_bins.get(layout_id)
+                        if old_quantity:
+                            inv_quantity += (old_quantity * inv_pack_quantity)
+                        if layout_id in req_bins:
+                            req_bin = req_bins[layout_id]
+                            reservation_quantity = req_bin["quantity"] * req_pack_quantity
+                            if inv_quantity > reservation_quantity:
+                                # Allocate more from this bin
+                                if inv_quantity >= (unbinned_quantity + reservation_quantity):
+                                    # Allocate all from this bin
+                                    new_quantity = (unbinned_quantity + reservation_quantity) / req_pack_quantity
+                                    req_bin["quantity"] = new_quantity
+                                    db(rbtable.id == req_bin["id"]).update(quantity = new_quantity)
+                                    to_allocate -= unbinned_quantity
+                                    unbinned_quantity = 0
+                                    break
+                                else:
+                                    # Allocate what we can from this bin
+                                    new_quantity = inv_quantity / req_pack_quantity
+                                    req_bin["quantity"] = new_quantity
+                                    db(rbtable.id == req_bin["id"]).update(quantity = new_quantity)
+                                    to_allocate -= (inv_quantity - reservation_quantity)
+                                    unbinned_quantity -= (inv_quantity - reservation_quantity)
+                        else:
+                            if inv_quantity >= unbinned_quantity:
+                                # Allocate all from this bin
+                                new_quantity = unbinned_quantity / req_pack_quantity
+                                bin_id = rbtable.insert(req_item_id = req_item_id,
+                                                        inv_item_id = inv_item_id,
+                                                        layout_id = layout_id,
+                                                        quantity = new_quantity,
+                                                        )
+                                req_bins[layout_id] = {"id": bin_id,
+                                                       "quantity": new_quantity,
+                                                       }
+                                to_allocate -= unbinned_quantity
+                                unbinned_quantity = 0
+                                break
+                            else:
+                                # Allocate what we can from this bin
+                                new_quantity = inv_quantity / req_pack_quantity
+                                bin_id = rbtable.insert(req_item_id = req_item_id,
+                                                        inv_item_id = inv_item_id,
+                                                        layout_id = layout_id,
+                                                        quantity = new_quantity,
+                                                        )
+                                req_bins[layout_id] = {"id": bin_id,
+                                                       "quantity": new_quantity,
+                                                       }
+                                to_allocate -= inv_quantity
+                                unbinned_quantity -= inv_quantity
+                    req_inv["bins"] = req_bins
+                    if unbinned_quantity > 0:
+                        # Allocate from unbinned Stock
+                        if None in req_bins:
+                            # Allocate more from unbinned
+                            req_bin = req_bins[None]
+                            reservation_quantity = req_bin["quantity"] * req_pack_quantity
+                            new_quantity = (unbinned_quantity + reservation_quantity) / req_pack_quantity
+                            req_bin["quantity"] = new_quantity
+                            db(rbtable.id == req_bin["id"]).update(quantity = new_quantity)
+                        else:
+                            # Allocate some from unbinned
+                            new_quantity = unbinned_quantity / req_pack_quantity
+                            bin_id = rbtable.insert(req_item_id = req_item_id,
+                                                    inv_item_id = inv_item_id,
+                                                    layout_id = None,
+                                                    quantity = new_quantity,
+                                                    )
+                            req_bins[None] = {"id": bin_id,
+                                              "quantity": new_quantity,
+                                              }
+                        to_allocate -= unbinned_quantity
+
+    # Update Stock levels
+    # @ToDo: Complete
+    for inv_item_id in inv_reservations:
+        inv_item = inv_items_dict[inv_item_id]
+        inv_pack_quantity = inv_item["pack_quantity"]
+        inv_total_quantity = inv_item["quantity"]
+        req_inv = inv_reservations[inv_item_id]
+        reservation_quantity = req_inv["quantity"]
+        new_inv_quantity = ((inv_total_quantity * inv_pack_quantity)  + (record.quantity_reserved * req_pack_quantity) - (reservation_quantity * req_pack_quantity)) / inv_pack_quantity
+        db(iitable.id == inv_item_id).update(quantity = new_inv_quantity)
+
+        # Update Bins
+        req_bins = req_inv["bins"]
+        inv_bins = inv_item["bins"]
+        old_inv_row = old_inv.get(inv_item_id)
+        if old_inv_row:
+            old_bins = old_inv_row.get("bins")
+        else:
+            old_bins = {}
+        for inv_bin in inv_bins:
+            layout_id = inv_bin["layout_id"]
+            old_bin = old_bins.get(layout_id)
+            req_bin = req_bins.get(layout_id)
+            if req_bin and not old_bin:
+                new_bin_quantity = ((inv_bin["quantity"] * inv_pack_quantity) - (req_bin["quantity"] * req_pack_quantity)) / inv_pack_quantity
+                db(ibtable.id == inv_bin["id"]).update(quantity = new_bin_quantity)
+            elif old_bin and not req_bin:
+                new_bin_quantity = ((inv_bin["quantity"] * inv_pack_quantity) + (old_bin * req_pack_quantity)) / inv_pack_quantity
+                db(ibtable.id == inv_bin["id"]).update(quantity = new_bin_quantity)
+            elif req_bin and old_bin:
+                new_bin_quantity = ((inv_bin["quantity"] * inv_pack_quantity) + (old_bin * req_pack_quantity) - (req_bin["quantity"] * req_pack_quantity)) / inv_pack_quantity
+                db(ibtable.id == inv_bin["id"]).update(quantity = new_bin_quantity)
 
 # =============================================================================
 def inv_req_marker_fn(record):
@@ -11366,11 +12589,13 @@ def inv_req_match(rheader = None):
             - add as inv_req_match controller to the module, then
             - configure as rheader-tab "inv_req_match/" for the site resource
 
-        @param rheader: module-specific rheader
+        Args:
+            rheader: module-specific rheader
 
-        NB make sure rheader uses s3_rheader_resource to handle "viewing"
-        NB can override rheader in customise_inv_req_controller by
-           updating attr dict
+        Note:
+            Make sure rheader uses s3_rheader_resource to handle "viewing"
+            Can override rheader in customise_inv_req_controller by
+                updating attr dict
     """
 
     T = current.T
@@ -11484,6 +12709,289 @@ def inv_req_match(rheader = None):
                                    )
 
 # =============================================================================
+def inv_req_pick_list(r, **attr):
+    """
+        Generate a Picking List for an Inventory Requisition
+        - for settings.inv_req_reserve_items
+
+        In order to order this list for optimal picking, we assume that the Bins are
+        strctured as Aisle/Site/Shelf with the Aisle being the gap between Racks as per Figure 2 in:
+        http://www.appriseconsulting.co.uk/warehouse-layout-and-pick-sequence/
+        We assume that Racks are numbered to match Figure 2, so we can do a simple sort on the Bin
+
+        Currently this is exported in XLS format
+
+        TODO:
+            Provide an on-screen version
+            Optimise Picking Route (as per Figure 3 in the above link)
+    """
+
+    req_id = r.id
+    record = r.record
+
+    from s3.codecs.xls import S3XLS
+
+    try:
+        import xlwt
+    except ImportError:
+        r.error(503, S3XLS.ERROR.XLWT_ERROR)
+
+    # Extract the Data
+    req_ref = record.req_ref
+    site_id = record.site_id
+
+    s3db = current.s3db
+
+    table = s3db.inv_req_item
+    itable = s3db.supply_item
+    ptable = s3db.supply_item_pack
+    rbtable = s3db.inv_req_item_inv
+
+    query = (table.req_id == req_id) & \
+            (table.item_id == itable.id) & \
+            (table.item_pack_id == ptable.id)
+    left = rbtable.on(rbtable.req_item_id == table.id)
+    items = current.db(query).select(table.site_id,
+                                     itable.code,
+                                     itable.name,
+                                     itable.volume,
+                                     itable.weight,
+                                     ptable.name,
+                                     ptable.quantity,
+                                     #rbtable.inv_item_id,
+                                     rbtable.layout_id,
+                                     rbtable.quantity,
+                                     left = left,
+                                     )
+
+    # Bulk Represent the Bins
+    # - values stored in class instance
+    bin_represent = rbtable.layout_id.represent
+    bins = bin_represent.bulk([row["inv_req_item_inv.layout_id"] for row in items])
+
+    # Bulk Represent the Sites
+    # - values stored in class instance
+    site_represent = S3Represent(lookup = "org_site")
+    sites = site_represent.bulk([row["inv_req_item.site_id"] for row in items] + [record.site_id])
+    destination = site_represent(site_id)
+
+    # Sort the data by Fulfilling Warehouse
+    items_by_site = {}
+    for row in items:
+        site = site_represent(row["inv_req_item.site_id"])
+        if site in items_by_site:
+            items_by_site[site].append(row)
+        else:
+            items_by_site[site] = [row]
+
+    translate = current.deployment_settings.get_L10n_translate_supply_item()
+
+    T = current.T
+
+    title = s3_str(T("Picking List"))
+
+    labels = [s3_str(T("Location")),
+              s3_str(T("Code")),
+              s3_str(T("Item Name")),
+              s3_str(T("UoM")),
+              s3_str(T("Qty to Pick")),
+              s3_str(T("Picked Qty")),
+              s3_str(T("Unit")),
+              s3_str(T("Total")),
+              s3_str(T("Unit")),
+              s3_str(T("Total")),
+              ]
+
+    # Create the workbook
+    book = xlwt.Workbook(encoding = "utf-8")
+
+    # Set column Widths
+    COL_WIDTH_MULTIPLIER = S3XLS.COL_WIDTH_MULTIPLIER
+    col_index = 0
+    label_widths = []
+    for label in labels:
+        width = max(len(label) * COL_WIDTH_MULTIPLIER, 2000)
+        width = min(width, 65535) # USHRT_MAX
+        label_widths.append(width)
+        col_index += 1
+
+    # Define styles
+    style = xlwt.XFStyle()
+
+    THIN = style.borders.THIN
+    HORZ_CENTER = style.alignment.HORZ_CENTER
+    HORZ_RIGHT = style.alignment.HORZ_RIGHT
+
+    style.borders.top = THIN
+    style.borders.left = THIN
+    style.borders.right = THIN
+    style.borders.bottom = THIN
+
+    right_style = xlwt.XFStyle()
+    right_style.alignment.horz = HORZ_RIGHT
+    right_style.borders.top = THIN
+    right_style.borders.left = THIN
+    right_style.borders.right = THIN
+    right_style.borders.bottom = THIN
+
+    center_style = xlwt.XFStyle()
+    center_style.alignment.horz = HORZ_CENTER
+    center_style.borders.top = THIN
+    center_style.borders.left = THIN
+    center_style.borders.right = THIN
+    center_style.borders.bottom = THIN
+
+    large_header_style = xlwt.XFStyle()
+    large_header_style.font.bold = True
+    large_header_style.font.height = 400
+
+    header_style = xlwt.XFStyle()
+    header_style.font.bold = True
+    header_style.alignment.horz = HORZ_CENTER
+    header_style.borders.top = THIN
+    header_style.borders.left = THIN
+    header_style.borders.right = THIN
+    header_style.borders.bottom = THIN
+    header_style.pattern.pattern = xlwt.Style.pattern_map["fine_dots"]
+    header_style.pattern.pattern_fore_colour = xlwt.Style.colour_map["gray25"]
+
+    for site in items_by_site:
+        # Add sheet
+        sheet = book.add_sheet(site)
+        sheet.set_portrait(0) # Landscape
+        sheet.set_print_scaling(90)
+
+        column_widths = list(label_widths)
+
+        # 1st row => Report Title & Requisition Number
+        current_row = sheet.row(0)
+        current_row.height = 500
+        #current_row.write(0, title, large_header_style)
+        sheet.write_merge(0, 0, 0, 1, title, large_header_style)
+        current_row.write(2, req_ref, large_header_style)
+
+        # 2nd row => Destination
+        current_row = sheet.row(1)
+        current_row.height = 500
+        #current_row.write(0, "%s:" % s3_str(T("Destination")), large_header_style)
+        sheet.write_merge(1, 1, 0, 1, "%s:" % s3_str(T("Destination")), large_header_style)
+        current_row.write(2, destination, large_header_style)
+        sheet.write_merge(1, 1, 6, 7, s3_str(T("Weight (kg)")), header_style)
+        sheet.write_merge(1, 1, 8, 9, s3_str(T("Volume (m3)")), header_style)
+
+        # 3rd row => Column Headers
+        current_row = sheet.row(2)
+        col_index = 0
+        for label in labels:
+            # Set column Width
+            sheet.col(col_index).width = column_widths[col_index]
+            current_row.write(col_index, label, header_style)
+            col_index += 1
+
+        # Data rows
+        items = items_by_site[site]
+
+        # Sort each Fulfilling Warehouse by Bin
+        def sort_function(row):
+            return bin_represent(row["inv_req_item_inv.layout_id"])
+        items.sort(key = sort_function)
+
+        row_index = 3
+        for row in items:
+            current_row = sheet.row(row_index)
+            item_row = row["supply_item"]
+            pack_row = row["supply_item_pack"]
+            bin_row = row["inv_req_item_inv"]
+            layout_id = bin_row.layout_id
+            if layout_id:
+                bin = bin_represent(layout_id)
+            else:
+                bin = ""
+            quantity = bin_row.quantity
+            item_name = item_row.name or ""
+            if translate and item_name:
+                item_name = s3_str(T(item_name))
+            pack_name = pack_row.name
+            if translate:
+                pack_name = s3_str(T(pack_name))
+            item_weight = item_row.weight
+            if item_weight:
+                total_weight = "{:.2f}".format(round(quantity * pack_row.quantity * item_weight, 2))
+            else:
+                total_weight = ""
+            item_volume = item_row.volume
+            if item_volume:
+                total_volume = "{:.2f}".format(round(quantity * pack_row.quantity * item_volume, 2))
+            else:
+                total_volume = ""
+            values = [bin,
+                      item_row.code or "",
+                      item_name,
+                      pack_name,
+                      str(int(quantity)),
+                      "", # Included for styling
+                      "{:.2f}".format(item_weight),
+                      total_weight,
+                      "{:.2f}".format(item_volume),
+                      total_volume,
+                      ]
+            col_index = 0
+            for value in values:
+                if col_index in (0, 1, 2, 3):
+                    current_row.write(col_index, value, style)
+                elif col_index == 4:
+                    # Qty to Pick
+                    current_row.write(col_index, value, center_style)
+                else:
+                    current_row.write(col_index, value, right_style)
+                if col_index == 1:
+                    # Code
+                    width = round(len(value) * COL_WIDTH_MULTIPLIER * 1.1)
+                    if width > column_widths[col_index]:
+                        column_widths[col_index] = width
+                        sheet.col(col_index).width = width
+                elif col_index == 2:
+                    # Item Name
+                    width = round(len(value) * COL_WIDTH_MULTIPLIER * 0.9)
+                    if width > column_widths[col_index]:
+                        column_widths[col_index] = width
+                        sheet.col(col_index).width = width
+                col_index += 1
+            row_index += 1
+
+        # Footer
+        current_row = sheet.row(row_index)
+        current_row.height = 400
+        sheet.write_merge(row_index, row_index, 0, 4, "%s:" % s3_str(T("Picked By")), right_style)
+        sheet.write_merge(row_index, row_index, 5, 9, "", style) # Styling
+        row_index += 1
+        current_row = sheet.row(row_index)
+        current_row.height = 400
+        sheet.write_merge(row_index, row_index, 0, 4, "%s:" % s3_str(T("Signature")), right_style)
+        sheet.write_merge(row_index, row_index, 5, 9, "", style) # Styling
+
+    # Export to File
+    output = BytesIO()
+    try:
+        book.save(output)
+    except:
+        import sys
+        error = sys.exc_info()[1]
+        current.log.error(error)
+    output.seek(0)
+
+    # Response headers
+    title = s3_str(T("Picking List for %(request)s")) % {"request": req_ref}
+    filename = "%s.xls" % title
+    response = current.response
+    from gluon.contenttype import contenttype
+    response.headers["Content-Type"] = contenttype(".xls")
+    disposition = "attachment; filename=\"%s\"" % filename
+    response.headers["Content-disposition"] = disposition
+
+    return output.read()
+
+# =============================================================================
 def inv_req_recv_sites(r, **attr):
     """
         Lookup to limit
@@ -11512,9 +13020,12 @@ def inv_req_recv_sites(r, **attr):
     request_items = current.db(query).select(ritable.site_id)
     requested_from_sites = set([int(row.site_id) for row in request_items if row.site_id])
     from_sites = []
-    for site in available_from_sites:
-        if site[0] and int(site[0]) in requested_from_sites:
-            from_sites.append(site)
+    for from_site in available_from_sites:
+        site = from_site[0]
+        if site:
+            site = int(site)
+            if site in requested_from_sites:
+                from_sites.append(site)
 
     # To Sites
     available_to_sites = s3db.inv_recv.site_id.requires.options(zero = False)
@@ -11530,8 +13041,9 @@ def inv_req_recv_sites(r, **attr):
                                         )
     requested_to_sites = set([int(row.site_id) for row in requests])
     to_sites = []
-    for site in available_to_sites:
-        if int(site[0]) in requested_to_sites:
+    for to_site in available_to_sites:
+        site = int(to_site[0])
+        if site in requested_to_sites:
             to_sites.append(site)
 
     current.response.headers["Content-Type"] = "application/json"
@@ -11567,7 +13079,7 @@ def inv_req_rheader(r, check_page=False):
         workflow_status = record.workflow_status
 
         tabs = [(T("Edit Details"), None)]
-        if settings.get_inv_multiple_req_items():
+        if settings.get_inv_req_multiple_items():
             req_item_tab_label = T("Items")
         else:
             req_item_tab_label = T("Item")
@@ -11597,9 +13109,7 @@ def inv_req_rheader(r, check_page=False):
                                                   record_id = req_id,
                                                   ):
                             submit_btn = A(T("Submit for Approval"),
-                                           _href = URL(c = "inv",
-                                                       f = "req",
-                                                       args = [req_id,
+                                           _href = URL(args = [req_id,
                                                                "submit",
                                                                ]
                                                        ),
@@ -11615,6 +13125,7 @@ def inv_req_rheader(r, check_page=False):
                             s3.js_global.append('''i18n.req_submit_confirm="%s"''' \
                                     % T("Are you sure you want to submit this request?"))
                             s3.rfooter = TAG[""](submit_btn)
+
                     elif workflow_status == 2: # Submitted
                         if inv_req_is_approver(site_id):
                             # Have they already approved?
@@ -11626,9 +13137,7 @@ def inv_req_rheader(r, check_page=False):
                                                         )
                             if not approved:
                                 approve_btn = A(T("Approve"),
-                                               _href = URL(c = "inv",
-                                                           f = "req",
-                                                           args = [req_id,
+                                               _href = URL(args = [req_id,
                                                                    "approve_req",
                                                                    ]
                                                            ),
@@ -11644,13 +13153,18 @@ def inv_req_rheader(r, check_page=False):
                                 s3.js_global.append('''i18n.req_approve_confirm="%s"''' \
                                         % T("Are you sure you want to approve this request?"))
                                 s3.rfooter = TAG[""](approve_btn)
+
                     elif workflow_status == 3: # Approved
                         # @ToDo: Check for permission on sites requested_from
                         if auth.s3_has_permission("create", "inv_send"):
-                            fulfil_btn = A(T("Fulfil Request"),
+                            if settings.get_inv_wizards():
+                                method = "wizard"
+                            else:
+                                method = "create"
+                            fulfil_btn = A(T("Prepare Shipment"),
                                            _href = URL(c = "inv",
                                                        f = "send",
-                                                       args = ["create"],
+                                                       args = [method],
                                                        vars = {"req_id": req_id},
                                                        ),
                                            _id = "req-fulfil",
@@ -11658,6 +13172,21 @@ def inv_req_rheader(r, check_page=False):
                                            )
                             # Not converted to POST as directs to a create form
                             s3.rfooter = TAG[""](fulfil_btn)
+
+                        if settings.get_inv_req_reserve_items():
+                            pl_btn = A(ICON("print"),
+                                       " ",
+                                       T("Picking List"),
+                                       _href = URL(args = [req_id,
+                                                           "pick_list.xls",
+                                                           ],
+                                                   ),
+                                       _class = "action-btn",
+                                       )
+                            if s3.rfooter:
+                                s3.rfooter.append(pl_btn)
+                            else:
+                                s3.rfooter = TAG[""](pl_btn)
 
         if not check_page:
             rheader_tabs = s3_rheader_tabs(r, tabs)
@@ -11718,8 +13247,13 @@ def inv_req_rheader(r, check_page=False):
         table = r.table
 
         if settings.get_inv_use_req_number() and not is_template:
+            represent = table.req_ref.represent
+            if not represent:
+                represent = inv_ReqRefRepresent(show_link = True)
             headerTR = TR(TH("%s: " % table.req_ref.label),
-                          TD(table.req_ref.represent(record.req_ref, show_link=True))
+                          TD(represent(record.req_ref,
+                                       show_link = True,
+                                       ))
                           )
         else:
             headerTR = TR(TD(settings.get_inv_req_form_name(),
@@ -11728,19 +13262,36 @@ def inv_req_rheader(r, check_page=False):
                              ),
                           )
         if site_id:
-            org_id = db(stable.site_id == site_id).select(stable.organisation_id,
-                                                          limitby = (0, 1),
-                                                          ).first().organisation_id
-            logo = s3db.org_organisation_logo(org_id)
+            site = db(stable.site_id == site_id).select(stable.organisation_id,
+                                                        limitby = (0, 1),
+                                                        ).first()
+            from .org import org_organisation_logo
+            logo = org_organisation_logo(site.organisation_id)
             if logo:
                 headerTR.append(TD(logo,
                                    _colspan = 2,
                                    ))
 
         if is_template:
+            row0 = ""
             row1 = ""
             row3 = ""
         else:
+            if settings.get_inv_req_project():
+                ltable = s3db.inv_req_project
+                f = ltable.project_id
+                link = db(ltable.req_id == req_id).select(f,
+                                                          limitby = (0, 1),
+                                                          ).first()
+                if link:
+                    row0 = TR(TH("%s: " % f.label),
+                              f.represent(link.project_id),
+                              )
+                else:
+                    row0 = ""
+            else:
+                row0 = ""
+
             if use_workflow and workflow_status in (1, 2, 5): # Draft/Submitted/Cancelled
                 row1_status = (TH("%s: " % table.workflow_status.label),
                                table.workflow_status.represent(workflow_status),
@@ -11766,6 +13317,7 @@ def inv_req_rheader(r, check_page=False):
                       )
 
         rheader = DIV(TABLE(headerTR,
+                            row0,
                             row1,
                             TR(TH("%s: " % table.site_id.label),
                                table.site_id.represent(site_id),
@@ -11776,7 +13328,7 @@ def inv_req_rheader(r, check_page=False):
                                table.requester_id.represent(record.requester_id),
                                ),
                             TR(TH("%s: " % table.purpose.label),
-                               record.purpose or current.messages["NONE"],
+                               record.purpose or NONE,
                                ),
                             TR(TH("%s: " % table.comments.label),
                                TD(record.comments or "",
@@ -11803,7 +13355,7 @@ def inv_req_send(r, **attr):
         Currently not exposed to UI
         - deemed better to force users through Check process
 
-        - called via POST from inv_send_rheader
+        - called via POST from inv_req_rfooter
         - called via JSON method to reduce request overheads
 
         @ToDo: Update for inv_inv_item_bin and inv_send_item_bin
@@ -11832,7 +13384,7 @@ def inv_req_send(r, **attr):
         error = "Site not provided!"
         current.session.error = error
         r.error(405, error,
-                tree = URL(args = [req_id]),
+                tree = '"%s"' % URL(args = [req_id]),
                 )
 
     db = current.db
@@ -11875,7 +13427,7 @@ def inv_req_send(r, **attr):
         error = T("This request has no items outstanding!")
         current.session.warning = error
         r.error(409, error,
-                tree = URL(args = [req_id, "req_item"]),
+                tree = '"%s"' % URL(args = [req_id, "req_item"]),
                 )
 
     record = r.record
@@ -11957,6 +13509,7 @@ def inv_req_send(r, **attr):
             iitem = item.inv_inv_item
             if one_match:
                 # Remove this total from the warehouse stock
+                # @ToDo: inv_remove doesn't handle Bins
                 send_item_quantity = inv_remove(iitem, quantity_needed)
                 quantity_needed -= send_item_quantity
                 append(iitem.id)
@@ -12072,8 +13625,9 @@ def inv_req_send_sites(r, **attr):
     request_items = current.db(query).select(ritable.site_id)
     requested_from_sites = set([int(row.site_id) for row in request_items if row.site_id])
     from_sites = []
-    for site in available_from_sites:
-        if int(site[0]) in requested_from_sites:
+    for from_site in available_from_sites:
+        site = int(from_site[0])
+        if site in requested_from_sites:
             from_sites.append(site)
 
     # To Sites
@@ -12090,9 +13644,12 @@ def inv_req_send_sites(r, **attr):
                                         )
     requested_to_sites = set([int(row.site_id) for row in requests])
     to_sites = []
-    for site in available_to_sites:
-        if site[0] and int(site[0]) in requested_to_sites:
-            to_sites.append(site)
+    for to_site in available_to_sites:
+        site = to_site[0]
+        if site:
+            site = int(site)
+            if site in requested_to_sites:
+                to_sites.append(site)
 
     current.response.headers["Content-Type"] = "application/json"
     return json.dumps((from_sites, to_sites), separators=SEPARATORS)
@@ -12102,10 +13659,12 @@ def inv_req_tabs(r, match=True):
     """
         Add a set of rheader tabs for a site's Inventory Requisition management
 
-        @param r: the S3Request (for permission checking)
-        @param match: request matching is applicable for this type of site
+        Args:
+            r: the S3Request (for permission checking)
+            match: request matching is applicable for this type of site
 
-        @return: list of rheader tab definitions
+        Returns:
+            list of rheader tab definitions
     """
 
     tabs = []
@@ -12246,7 +13805,8 @@ def inv_rheader(r):
         rheader_fields, rheader_tabs = rheader(r, table=table, record=record)
 
         # Inject logo
-        logo = s3db.org_organisation_logo(record.organisation_id)
+        from .org import org_organisation_logo
+        logo = org_organisation_logo(record.organisation_id)
         if logo:
             rheader = DIV(TABLE(TR(TD(logo),
                                    TD(rheader_fields)
@@ -12295,11 +13855,11 @@ def inv_rheader(r):
         rheader_tabs = DIV(s3_rheader_tabs(r, tabs))
 
         # Header
-        rheader = DIV(TABLE(TR(TH("%s: " % table.req_ref.label),
-                               TD(table.req_ref.represent(record.req_ref),
-                                  _colspan = 3,
-                                  ),
-                               ),
+        rheader = DIV(TABLE(#TR(TH("%s: " % table.req_ref.label),
+                            #   TD(table.req_ref.represent(record.req_ref),
+                            #      _colspan = 3,
+                            #      ),
+                            #   ),
                             TR(TH("%s: " % table.item_id.label),
                                table.item_id.represent(record.item_id),
                                TH("%s: " % table.item_pack_id.label),
@@ -12373,7 +13933,6 @@ def inv_rheader(r):
         db = current.db
         item_id = record.item_id
         site_id = record.site_id
-        NONE = current.messages["NONE"]
 
         # Lookup Item Details
         itable = s3db.supply_item
@@ -12415,6 +13974,9 @@ def inv_rheader(r):
                                record.expiry_date or NONE,
                                TH("%s: " % T("Stock Minimum")),
                                stock_minimum,
+                               ),
+                            TR(TH("%s: " % table.supply_org_id.label),
+                               table.supply_org_id.represent(record.supply_org_id),
                                ),
                             ),
                       #rheader_tabs,
@@ -12616,6 +14178,7 @@ def inv_send_controller():
     T = current.T
     db = current.db
     s3db = current.s3db
+    settings = current.deployment_settings
 
     sendtable = s3db.inv_send
 
@@ -12640,6 +14203,13 @@ def inv_send_controller():
     set_method("inv", "send",
                method = "gift_certificate",
                action = inv_gift_certificate,
+               )
+
+    # Generate Item Labels
+    set_method("inv", "send",
+               component_name = "track_item",
+               method = "label",
+               action = inv_item_label,
                )
 
     # Generate Package Labels
@@ -12691,13 +14261,20 @@ def inv_send_controller():
                )
 
     def prep(r):
-        settings = current.deployment_settings
         send_req = settings.get_inv_send_req()
 
+        export_formats = settings.ui.export_formats
+        if "pdf" in export_formats:
+            # Use 'form' instead of standard PDF exporter
+            export_formats = list(export_formats)
+            export_formats.remove("pdf")
+            settings.ui.export_formats = export_formats
+
+        method = r.method
         record = r.record
         if record:
             status = record.status
-        elif r.method == "create":
+        elif method in ("create", "wizard"):
             req_id = r.get_vars.get("req_id")
             if req_id:
                 rtable = s3db.inv_req
@@ -12716,16 +14293,53 @@ def inv_send_controller():
         if r.component:
             cname = r.component_name
             if cname == "document":
+                s3.crud_strings["doc_document"].label_create = T("File Signed Document")
+
                 # Simplify a little
                 table = s3db.doc_document
                 table.file.required = True
-                table.url.readable = table.url.writable = False
-                table.date.readable = table.date.writable = False
+                #table.url.readable = table.url.writable = False
+                #table.date.readable = table.date.writable = False
+
+                WAYBILL = settings.get_inv_send_form_name()
+                field = table.name
+                field.label = T("Type")
+                document_type_opts = {"PL": T("Picking List"),
+                                      "REQ": settings.get_inv_req_form_name(),
+                                      "WB": WAYBILL,
+                                      }
+                field.default = "WB"
+                field.requires = IS_IN_SET(document_type_opts)
+                field.represent = s3_options_represent(document_type_opts)
+
+                # Add button to print the WB
+                # - needed for Wizard, but generalised for consistency
+                button = DIV(P(T("Print and Upload the signed %(waybill)s:") % {"waybill": WAYBILL}),
+                             A(ICON("print"),
+                               " ",
+                               settings.get_inv_send_shortname(),
+                               _href = URL(args = [record.id,
+                                                   "form",
+                                                   ]
+                                         ),
+                               _class = "action-btn",
+                               ),
+                            )
+
+                crud_form = S3SQLCustomForm(S3SQLInlineWidget(button),
+                                            "name",
+                                            "file",
+                                            "comments",
+                                            )
+
+                s3db.configure("doc_document",
+                               crud_form = crud_form,
+                               )
 
             elif cname == "send_package":
 
                 # Uncommon workflow, so no need to optimise for this:
-                #if r.method == "read":
+                #if method == "read":
                 #    return True
 
                 if status != SHIP_STATUS_IN_PROCESS:
@@ -12779,9 +14393,9 @@ def inv_send_controller():
                     if row.send_package_id == send_package_id:
                         send_package.append(track_item_id)
                     track_items[track_item_id] -= row.quantity
-                track_item_ids = [track_item_id for track_item_id in track_items if (track_item_id not in send_package) and (track_items[track_item_id] <= 0)]
-                spitable.track_item_id.requires.set_filter(not_filterby = "id", # Using not_filter_by as filter_opts = [] means 'no filtering' rather than 'no results'
-                                                           not_filter_opts = track_item_ids,
+                track_item_ids = [track_item_id for track_item_id in track_items if ((track_item_id in send_package) or (track_items[track_item_id] > 0))]
+                spitable.track_item_id.requires.set_filter(filterby = "id",
+                                                           filter_opts = track_item_ids,
                                                            )
                 # Default Quantity
                 if send_package_id:
@@ -12801,13 +14415,12 @@ def inv_send_controller():
 
                 # Security-wise, we are already covered by configure()
                 # Performance-wise, we should optimise for UI-acessible flows
-                #method = r.method
                 #if method in ("create", "delete"):
                 #    # Can only create or delete track items for a send record
                 #    # if the status is preparing
                 #    if status != SHIP_STATUS_IN_PROCESS:
                 #        return False
-                if r.method == "delete":
+                if method == "delete":
                     return inv_track_item_deleting(r.component_id)
 
                 tracktable = s3db.inv_track_item
@@ -13029,7 +14642,7 @@ def inv_send_controller():
                     crud_strings.title_update = \
                     crud_strings.title_display = T("Process Shipment to Send")
 
-                    if r.method in (None, "update"):
+                    if method in (None, "update", "wizard"):
                         # Limit to Bins from this site
                         from .org import org_site_layout_config
                         isbtable = s3db.inv_send_item_bin
@@ -13139,19 +14752,24 @@ def inv_send_controller():
                                     this_data = inv_data[inv_item_id]
                                     bins = this_data.get("b")
                                     if not bins:
-                                        this_data["b"] = [{"l": layout_id,
-                                                           "q": bin_row.quantity,
-                                                           },
-                                                          ]
+                                        this_data["b"] = {layout_id: bin_row.quantity,
+                                                          }
                                     else:
-                                        this_data["b"].append({"l": layout_id,
-                                                               "q": bin_row.quantity,
-                                                               })
+                                        this_data["b"][layout_id] = bin_row.quantity
 
-                                # Set the dropdown options
-                                f = tracktable.send_inv_item_id
-                                f.requires = f.requires.other
-                                f.requires.dbset = db(query & ii_query)
+                                dbset = db(query & ii_query)
+                                if dbset.select(iitable.id,
+                                                limitby = (0, 1),
+                                                ):
+                                    # Set the dropdown options
+                                    f = tracktable.send_inv_item_id
+                                    f.requires = f.requires.other
+                                    f.requires.dbset = dbset
+                                else:
+                                    # No more items can be added
+                                    s3db.configure("inv_track_item",
+                                                   insertable = False,
+                                                   )
 
                         if not reqs:
                             # Restrict to valid items from this site only
@@ -13178,18 +14796,14 @@ def inv_send_controller():
                                 if inv_item_id in inv_data:
                                     layout_id = bin_row.layout_id
                                     if layout_id:
-                                        inv_data[inv_item_id]["b"].append({"l": layout_id,
-                                                                           "q": bin_row.quantity,
-                                                                           })
+                                        inv_data[inv_item_id]["b"][layout_id] = bin_row.quantity
                                 else:
                                     layout_id = bin_row.layout_id
                                     if layout_id:
-                                        b = [{"l": layout_id,
-                                              "q": bin_row.quantity,
-                                              },
-                                             ]
+                                        b = {layout_id: bin_row.quantity,
+                                             }
                                     else:
-                                        b = []
+                                        b = {}
                                     inv_data[inv_item_id] = {"q": inv_row.quantity,
                                                              "b": b,
                                                              }
@@ -13303,39 +14917,111 @@ S3.supply.site_id=%s%s''' % (json.dumps(inv_data, separators=SEPARATORS),
                 set_send_attr(SHIP_STATUS_IN_PROCESS)
                 sendtable.send_ref.readable = False
 
-            if settings.get_inv_send_req() and \
-               (r.method == "create" or \
-                (r.method == "update" and record.status == SHIP_STATUS_IN_PROCESS)):
-                # Filter Requests to those which are:
-                # - Approved (or Open)
-                # - Have Items Requested From our sites which are not yet in-Transit/Fulfilled
-                sites = sendtable.site_id.requires.options(zero = False)
-                site_ids = [site[0] for site in sites]
-                rtable = s3db.inv_req
-                ritable = s3db.inv_req_item
-                if len(site_ids) > 1:
-                    site_query = (ritable.site_id.belongs(site_ids))
-                    if s3.debug:
-                        s3.scripts.append("/%s/static/scripts/S3/s3.inv_send.js" % r.application)
+            if (method in ("create", "wizard") or \
+               (method == "update" and record.status == SHIP_STATUS_IN_PROCESS)):
+                if s3.debug:
+                    s3.scripts.append("/%s/static/scripts/S3/s3.inv_send.js" % r.application)
+                else:
+                    s3.scripts.append("/%s/static/scripts/S3/s3.inv_send.min.js" % r.application)
+                if sendtable.transport_type.writable:
+                    s3.js_global.append(
+'''i18n.AWB='%s'
+i18n.BL='%s'
+i18n.CMR='%s'
+i18n.ref='%s'
+i18n.flight='%s'
+i18n.vessel='%s'
+i18n.vehicle='%s'
+i18n.reg='%s'
+''' % (T("AWB No"),
+       T("B/L No"),
+       T("Waybill/CMR No"),
+       T("Transport Reference"),
+       T("Flight"),
+       T("Vessel"),
+       T("Vehicle Plate Number"),
+       T("Registration Number"),
+       ))
+                if settings.get_inv_send_req():
+                    # Filter Requests to those which are:
+                    # - Approved (or Open)
+                    # - Have Items Requested From our sites which are not yet in-Transit/Fulfilled
+                    sites = sendtable.site_id.requires.options(zero = False)
+                    site_ids = [site[0] for site in sites]
+                    rtable = s3db.inv_req
+                    ritable = s3db.inv_req_item
+                    if len(site_ids) > 1:
+                        site_query = (ritable.site_id.belongs(site_ids))
                     else:
-                        s3.scripts.append("/%s/static/scripts/S3/s3.inv_send.min.js" % r.application)
-                else:
-                    site_query = (ritable.site_id == site_ids[0])
-                query = (rtable.id == ritable.req_id) & \
-                        site_query & \
-                        (ritable.quantity_transit < ritable.quantity)
-                if settings.get_inv_req_workflow():
-                    query = (rtable.workflow_status == 3) & query
-                else:
-                    query = (rtable.fulfil_status.belongs((REQ_STATUS_NONE, REQ_STATUS_PARTIAL))) & query
-                f = s3db.inv_send_req.req_id
-                f.requires = IS_ONE_OF(db(query), "inv_req.id",
-                                       f.represent,
-                                       sort = True,
-                                       )
+                        site_query = (ritable.site_id == site_ids[0])
+                    query = (rtable.id == ritable.req_id) & \
+                            site_query & \
+                            (ritable.quantity_transit < ritable.quantity)
+                    if settings.get_inv_req_workflow():
+                        query = (rtable.workflow_status == 3) & query
+                    else:
+                        query = (rtable.fulfil_status.belongs((REQ_STATUS_NONE, REQ_STATUS_PARTIAL))) & query
+                    f = s3db.inv_send_req.req_id
+                    f.requires = IS_ONE_OF(db(query), "inv_req.id",
+                                           f.represent,
+                                           sort = True,
+                                           )
+                    if settings.get_inv_req_reserve_items():
+                        crud_fields = [f for f in sendtable.fields if sendtable[f].readable]
+                        crud_form = S3SQLCustomForm(*crud_fields,
+                                                    postprocess = inv_send_postprocess,
+                                                    )
+            elif record:
+                transport_type = record.transport_type
+                if transport_type == "Air":
+                    sendtable.transport_ref.label = T("AWB No")
+                    sendtable.registration_no.label = T("Flight")
+                elif transport_type == "Sea":
+                    sendtable.transport_ref.label = T("B/L No")
+                    sendtable.registration_no.label = T("Vessel")
+                elif transport_type == "Road":
+                    sendtable.transport_ref.label = T("Waybill/CMR No")
+                    sendtable.registration_no.label = T("Vehicle Plate Number")
+                elif transport_type == "Hand":
+                    sendtable.transport_ref.readable = False
+                    sendtable.vehicle.readable = False
+                    sendtable.registration_no.readable = False
 
         return True
     s3.prep = prep
+
+    def postp(r, output):
+        if r.interactive:
+            if r.component_name == "track_item" and \
+               not r.component_id:
+                # Add Action Button to Print Item Label
+                if s3.actions == None:
+                    # Normal Action Buttons
+                    s3_action_buttons(r)
+                # Custom Action Buttons
+                s3.actions += [{"icon": ICON.css_class("print"),
+                                "label": s3_str(T("Label")),
+                                "url": URL(args = [r.id,
+                                                   "track_item",
+                                                   "[id]",
+                                                   "label",
+                                                   ],
+                                           ),
+                                "_class": "action-btn",
+                                },
+                               ]
+
+            elif r.method == None and \
+                 settings.get_inv_wizards() and \
+                isinstance(output, dict):
+                try:
+                    # Launch Wizard, not Create form
+                    output["buttons"]["add_btn"]["_href"] = URL(args = "wizard")
+                except KeyError:
+                    pass
+
+        return output
+    s3.postp = postp
 
     return current.rest_controller("inv", "send",
                                    rheader = inv_send_rheader,
@@ -13375,7 +15061,7 @@ def inv_send_cancel(r, **attr):
 
     if record.status != SHIP_STATUS_SENT:
         r.error(409, T("This shipment has not been sent - it has NOT been canceled because it can still be edited."),
-                tree = URL(args = [send_id]),
+                tree = '"%s"' % URL(args = [send_id]),
                 )
 
     db = current.db
@@ -13436,16 +15122,10 @@ def inv_send_form(r, **attr):
     tracktable.send_inv_item_id.readable = False
     tracktable.recv_inv_item_id.readable = False
 
-    record = db(table.id == r.id).select(table.send_ref,
-                                         limitby = (0, 1),
-                                         ).first()
-    send_ref = record.send_ref
-
     list_fields = [(T("Item Code"), "item_id$code"),
                    "item_id",
                    (T("Weight (kg)"), "item_id$weight"),
                    (T("Volume (m3)"), "item_id$volume"),
-                   "layout_id",
                    "item_source_no",
                    "item_pack_id",
                    "quantity",
@@ -13467,7 +15147,7 @@ def inv_send_form(r, **attr):
                     method = "list",
                     pdf_componentname = "track_item",
                     pdf_title = settings.get_inv_send_form_name(),
-                    pdf_filename = send_ref,
+                    pdf_filename = r.record.send_ref,
                     list_fields = list_fields,
                     pdf_hide_comments = True,
                     pdf_header_padding = 12,
@@ -13488,6 +15168,9 @@ def inv_send_item_postprocess(form):
         If the bin to take from hasn't been selected then we auto-allocate.
         We optimise to minimise the number of Bins remaining for an Item
         (An alternative would be to optimise this Pick)
+
+        Stock cards, Request Status and Warehouse Free Capacity not updated until
+        Shipment actually Sent (inv_send_process)
     """
 
     record = form.record
@@ -13559,6 +15242,17 @@ def inv_send_item_postprocess(form):
                              "quantity": bin_quantity,
                              })
 
+    if record:
+        # Update form: Read the old Bin Data
+        old_bin_data = record.sub_defaultsend_bin
+        old_bin_data = json.loads(old_bin_data) or {}
+        old_bin_data = old_bin_data.get("data", [])
+        old_bins = {}
+        for row in old_bin_data:
+            bin_quantity = row["quantity"]["value"]
+            if bin_quantity:
+                old_bins[row["layout_id"]["value"]] = float(bin_quantity)
+
     if send_quantity > binned_quantity:
         # Auto-allocate
         from operator import itemgetter
@@ -13568,25 +15262,32 @@ def inv_send_item_postprocess(form):
             for inv_bin in inv_bins:
                 layout_id = inv_bin["layout_id"]
                 inv_quantity = inv_bin["quantity"] * inv_pack_quantity
+                if record:
+                    # Update form
+                    # - add previously allocated inventory
+                    old_quantity = old_bins.get(layout_id)
+                    if old_quantity:
+                        inv_quantity += (old_quantity * inv_pack_quantity)
                 if layout_id in send_bins:
                     send_bin = send_bins[layout_id]
-                    send_quantity = send_bin["quantity"] * send_pack_quantity
-                    if inv_quantity > send_quantity:
+                    send_bin_quantity = send_bin["quantity"] * send_pack_quantity
+                    if inv_quantity > send_bin_quantity:
                         # Allocate more from this bin
-                        if inv_quantity > (to_allocate + send_quantity):
+                        if inv_quantity >= (to_allocate + send_bin_quantity):
                             # Allocate all from this bin
-                            new_quantity = (to_allocate + send_quantity) / send_pack_quantity
+                            new_quantity = (to_allocate + send_bin_quantity) / send_pack_quantity
                             send_bin["quantity"] = new_quantity
                             db(sbtable.id == send_bin["id"]).update(quantity = new_quantity)
                             to_allocate = 0
+                            break
                         else:
                             # Allocate what we can from this bin
                             new_quantity = inv_quantity / send_pack_quantity
                             send_bin["quantity"] = new_quantity
                             db(sbtable.id == send_bin["id"]).update(quantity = new_quantity)
-                            to_allocate -= (inv_quantity - send_quantity)
+                            to_allocate -= (inv_quantity - send_bin_quantity)
                 else:
-                    if inv_quantity > to_allocate:
+                    if inv_quantity >= to_allocate:
                         # Allocate all from this bin
                         new_quantity = to_allocate / send_pack_quantity
                         bin_id = sbtable.insert(track_item_id = track_item_id,
@@ -13597,6 +15298,7 @@ def inv_send_item_postprocess(form):
                                                 "quantity": new_quantity,
                                                 }
                         to_allocate = 0
+                        break
                     else:
                         # Allocate what we can from this bin
                         new_quantity = inv_quantity / send_pack_quantity
@@ -13628,16 +15330,6 @@ def inv_send_item_postprocess(form):
     db(iitable.id == inv_item_id).update(quantity = new_inv_quantity)
 
     # Update Bins
-    if record:
-        old_bin_data = record.sub_defaultsend_bin
-        if old_bin_data:
-            old_bin_data = json.loads(old_bin_data) or {}
-            old_bin_data = old_bin_data.get("data", [])
-            old_bins = {}
-            for row in old_bin_data:
-                bin_quantity = row["quantity"]["value"]
-                if bin_quantity:
-                    old_bins[row["layout_id"]["value"]] = float(bin_quantity)
     for inv_bin in inv_bins:
         layout_id = inv_bin["layout_id"]
         if record:
@@ -13647,10 +15339,10 @@ def inv_send_item_postprocess(form):
                 new_bin_quantity = ((inv_bin["quantity"] * inv_pack_quantity) - (send_bin["quantity"] * send_pack_quantity)) / inv_pack_quantity
                 db(ibtable.id == inv_bin["id"]).update(quantity = new_bin_quantity)
             elif old_bin and not send_bin:
-                new_bin_quantity = ((inv_bin["quantity"] * inv_pack_quantity) + (old_bin["quantity"] * old_pack_quantity)) / inv_pack_quantity
+                new_bin_quantity = ((inv_bin["quantity"] * inv_pack_quantity) + (old_bin * old_pack_quantity)) / inv_pack_quantity
                 db(ibtable.id == inv_bin["id"]).update(quantity = new_bin_quantity)
             elif send_bin and old_bin:
-                new_bin_quantity = ((inv_bin["quantity"] * inv_pack_quantity) + (old_bin["quantity"] * old_pack_quantity) - (send_bin["quantity"] * send_pack_quantity)) / inv_pack_quantity
+                new_bin_quantity = ((inv_bin["quantity"] * inv_pack_quantity) + (old_bin * old_pack_quantity) - (send_bin["quantity"] * send_pack_quantity)) / inv_pack_quantity
                 db(ibtable.id == inv_bin["id"]).update(quantity = new_bin_quantity)
         else:
             send_bin = send_bins.get(layout_id)
@@ -13666,16 +15358,13 @@ def inv_send_onaccept(form):
        - add all inv items with the status of the shipment type
     """
 
+    db = current.db
+    settings = current.deployment_settings
+
     form_vars = form.vars
     send_id = form_vars.id
 
-    if current.deployment_settings.get_inv_send_add_items_of_shipment_type():
-        shipment_type = form_vars.type
-        if shipment_type:
-            inv_send_add_items_of_shipment_type(send_id, form_vars.site_id, int(shipment_type))
-
     # If the send_ref is None then set it up
-    db = current.db
     stable = db.inv_send
     record = db(stable.id == send_id).select(stable.id,
                                              stable.send_ref,
@@ -13684,11 +15373,114 @@ def inv_send_onaccept(form):
                                              ).first()
     if not record.send_ref:
         from .supply import supply_get_shipping_code as get_shipping_code
-        code = get_shipping_code(current.deployment_settings.get_inv_send_shortname(),
+        code = get_shipping_code(settings.get_inv_send_shortname(),
                                  record.site_id,
                                  stable.send_ref,
                                  )
         record.update_record(send_ref = code)
+
+    # Add all Items matching Shipment Type
+    if settings.get_inv_send_add_items_of_shipment_type():
+        shipment_type = form_vars.type
+        if shipment_type:
+            inv_send_add_items_of_shipment_type(send_id, form_vars.site_id, int(shipment_type))
+
+# =============================================================================
+def inv_send_postprocess(form):
+    """
+       When a inv send record is created
+       - add all reserved items for linked Inventory Requisitions
+    """
+
+    if form.record:
+        # @ToDo: Allow Update forms? (Be careful if keeping track in the req as we could delete the send...)
+        return
+
+    # Only called when inv_req_reserve_items is active
+    #if not current.deployment_settings.get_inv_req_reserve_items():
+    #    return
+
+    form_vars = form.vars
+    send_id = form_vars.id
+
+    s3db = current.s3db
+
+    ltable = s3db.inv_send_req
+    ritable = s3db.inv_req_item
+    rbtable = s3db.inv_req_item_inv
+    iitable = s3db.inv_inv_item
+
+    query = (ltable.send_id == send_id) & \
+            (ltable.req_id == ritable.req_id) & \
+            (ritable.site_id == form_vars.site_id) & \
+            (ritable.id == rbtable.req_item_id) & \
+            (rbtable.inv_item_id == iitable.id)
+    items = current.db(query).select(ritable.id,
+                                     ritable.item_id,
+                                     ritable.item_pack_id,
+                                     rbtable.inv_item_id,
+                                     rbtable.layout_id,
+                                     rbtable.quantity,
+                                     iitable.pack_value,
+                                     iitable.currency,
+                                     iitable.expiry_date,
+                                     iitable.item_source_no,
+                                     iitable.supply_org_id,
+                                     iitable.owner_org_id,
+                                     )
+    if items:
+        # Sort by inv_item_id
+        inv_items = {}
+        for row in items:
+            req_inv_row = row.inv_req_item_inv
+            inv_item_id = req_inv_row.inv_item_id
+            if inv_item_id not in inv_items:
+                req_row = row.inv_req_item
+                inv_row = row.inv_inv_item
+                inv_items[inv_item_id] = {"req_item_id": req_row.id,
+                                          "item_id": req_row.item_id,
+                                          "item_pack_id": req_row.item_pack_id,
+                                          "pack_value": inv_row.pack_value,
+                                          "currency": inv_row.currency,
+                                          "expiry_date": inv_row.expiry_date,
+                                          "item_source_no": inv_row.item_source_no,
+                                          "supply_org_id": inv_row.supply_org_id,
+                                          "owner_org_id": inv_row.owner_org_id,
+                                          "bins": [],
+                                          "quantity": 0,
+                                          }
+            bin_quantity = req_inv_row.quantity
+            if bin_quantity:
+                inv_items[inv_item_id]["quantity"] += bin_quantity
+                layout_id = req_inv_row.layout_id
+                if layout_id:
+                    inv_items[inv_item_id]["bins"].append({"layout_id": layout_id,
+                                                           "quantity": bin_quantity,
+                                                           })
+
+        ttable = s3db.inv_track_item
+        sbtable = s3db.inv_send_item_bin
+        for inv_item_id in inv_items:
+            item = inv_items[inv_item_id]
+            track_item_id = ttable.insert(send_id = send_id,
+                                          item_id = item["item_id"],
+                                          item_pack_id = item["item_pack_id"],
+                                          quantity = item["quantity"],
+                                          pack_value = item["pack_value"],
+                                          currency = item["currency"],
+                                          expiry_date = item["expiry_date"],
+                                          item_source_no = item["item_source_no"],
+                                          supply_org_id = item["supply_org_id"],
+                                          owner_org_id = item["owner_org_id"],
+                                          req_item_id = item["req_item_id"],
+                                          send_inv_item_id = inv_item_id,
+                                          status = TRACK_STATUS_TRANSIT, # Record locked (can't edit, no duplication of stock removal)
+                                          )
+            for req_bin in item["bins"]:
+                sbtable.insert(track_item_id = track_item_id,
+                               layout_id = req_bin["layout_id"],
+                               quantity = req_bin["quantity"],
+                               )
 
 # =============================================================================
 def inv_send_package_update(send_package_id):
@@ -13763,7 +15555,7 @@ def inv_send_process(r, **attr):
         error = T("No items have been selected for shipping.")
         current.session.error = error
         r.error(409, error,
-                tree = URL(args = [send_id]),
+                tree = '"%s"' % URL(args = [send_id]),
                 )
 
     db = current.db
@@ -13784,7 +15576,7 @@ def inv_send_process(r, **attr):
         error = T("No items have been selected for shipping.")
         current.session.error = error
         r.error(409, error,
-                tree = URL(args = [send_id]),
+                tree = '"%s"' % URL(args = [send_id]),
                 )
 
     # Update Send record & lock for editing
@@ -13832,6 +15624,9 @@ def inv_send_process(r, **attr):
             "recipient_id": record.recipient_id,
             "site_id": record.to_site_id,
             "transport_type": record.transport_type,
+            "transported_by": record.transported_by,
+            "transport_ref": record.transport_ref,
+            "registration_no": record.registration_no,
             "comments": record.comments,
             "status": SHIP_STATUS_SENT,
             "type": 1, # "Another Inventory"
@@ -13999,7 +15794,7 @@ def inv_send_return_complete(r, **attr):
 
     if record.status != SHIP_STATUS_RETURNING:
         r.error(409, T("This shipment has not been returned."),
-                tree = URL(args = [send_id]),
+                tree = '"%s"' % URL(args = [send_id]),
                 )
 
     db = current.db
@@ -14086,7 +15881,7 @@ def inv_send_return(r, **attr):
 
     if r.record.status == SHIP_STATUS_IN_PROCESS:
         r.error(409, T("This shipment has not been sent - it cannot be returned because it can still be edited."),
-                tree = URL(args = [send_id]),
+                tree = '"%s"' % URL(args = [send_id]),
                 )
 
     db = current.db
@@ -14149,8 +15944,8 @@ def inv_send_rheader(r):
                                                             stable.instance_type,
                                                             limitby = (0, 1),
                                                             ).first()
-                org_id = site.organisation_id
-                logo = s3db.org_organisation_logo(org_id) or ""
+                from .org import org_organisation_logo
+                logo = org_organisation_logo(site.organisation_id)
                 instance_table = s3db[site.instance_type]
                 if "phone1" in instance_table.fields:
                     site = db(instance_table.site_id == site_id).select(instance_table.phone1,
@@ -14163,7 +15958,6 @@ def inv_send_rheader(r):
                     phone1 = None
                     phone2 = None
             else:
-                org_id = None
                 logo = ""
                 phone1 = None
                 phone2 = None
@@ -14174,7 +15968,7 @@ def inv_send_rheader(r):
                                                                ).first()
                 address = s3db.gis_LocationRepresent(address_only = True)(site.location_id)
             else:
-                address = current.messages["NONE"]
+                address = NONE
             if settings.get_inv_send_req():
                 req_ref_label = TH("%s: " % table.req_ref.label)
                 ltable = s3db.inv_send_req
@@ -14259,6 +16053,21 @@ def inv_send_rheader(r):
                                                   record_id = record.id,
                                                   ):
 
+                    if status == SHIP_STATUS_IN_PROCESS and \
+                       settings.get_inv_wizards():
+                        actions = DIV(A(ICON("wizard"),
+                                             " ",
+                                             T("Wizard"),
+                                            _href = URL(args = [record.id,
+                                                                "wizard",
+                                                                ]
+                                                        ),
+                                            _class = "action-btn",
+                                            )
+                                      )
+                    else:
+                        actions = None
+                        
                     packaging = None
                     # Don't show buttons unless Items have been added
                     tracktable = s3db.inv_track_item
@@ -14267,12 +16076,14 @@ def inv_send_rheader(r):
                                             limitby = (0, 1),
                                             ).first()
                     if item:
-                        actions = DIV()
+                        if not actions:
+                            actions = DIV()
                         jappend = s3.js_global.append
                         if s3.debug:
                             s3.scripts.append("/%s/static/scripts/S3/s3.inv_send_rheader.js" % r.application)
                         else:
                             s3.scripts.append("/%s/static/scripts/S3/s3.inv_send_rheader.min.js" % r.application)
+
                         if status == SHIP_STATUS_IN_PROCESS:
                             actions.append(A(ICON("print"),
                                              " ",
@@ -14412,6 +16223,7 @@ def inv_send_rheader(r):
                                 jappend('''i18n.send_cancel_confirm="%s"''' % \
                                     T("Do you want to cancel this sent shipment? The items will be returned to the Warehouse. This action CANNOT be undone!"))
 
+                    if actions:
                         shipment_details.append(TR(TH(actions,
                                                       _colspan = 2,
                                                       )))
@@ -14427,69 +16239,71 @@ def inv_send_rheader(r):
 # ---------------------------------------------------------------------
 def inv_send_pdf_footer(r):
     """
-        Footer for the Waybill
+        Default Footer for the Waybill
+        - called by inv_send_form
+        - has come from Red Cross
     """
 
-    if r.record:
-        T = current.T
-        footer = DIV(TABLE(TR(TH(T("Commodities Loaded")),
-                              TH(T("Date")),
-                              TH(T("Function")),
-                              TH(T("Name")),
-                              TH(T("Signature")),
-                              TH(T("Location (Site)")),
-                              TH(T("Condition")),
-                              ),
-                           TR(TD(T("Loaded By")),
-                              TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              ),
-                           TR(TD(T("Transported By")),
-                              TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              ),
-                           TR(TH(T("Reception")),
-                              TH(T("Date")),
-                              TH(T("Function")),
-                              TH(T("Name")),
-                              TH(T("Signature")),
-                              TH(T("Location (Site)")),
-                              TH(T("Condition")),
-                              ),
-                           TR(TD(T("Received By")),
-                              TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              TD(),
-                              ),
-                           ))
-        return footer
-    return None
+    T = current.T
+    return DIV(TABLE(TR(TH(T("Commodities Loaded")),
+                        TH(T("Date")),
+                        TH(T("Function")),
+                        TH(T("Name")),
+                        TH(T("Signature")),
+                        TH(T("Location (Site)")),
+                        TH(T("Condition")),
+                        ),
+                     TR(TD(T("Loaded By")),
+                        TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        ),
+                     TR(TD(T("Transported By")),
+                        TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        ),
+                     TR(TH(T("Reception")),
+                        TH(T("Date")),
+                        TH(T("Function")),
+                        TH(T("Name")),
+                        TH(T("Signature")),
+                        TH(T("Location (Site)")),
+                        TH(T("Condition")),
+                        ),
+                     TR(TD(T("Received By")),
+                        TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        TD(),
+                        ),
+                     ))
 
 # =============================================================================
 def inv_stock_movements(resource, selectors, orderby):
     """
         Extraction method for stock movements report
 
-        @param resource: the S3Resource (inv_inv_item)
-        @param selectors: the field selectors
-        @param orderby: orderby expression
+        Args:
+            resource: the S3Resource (inv_inv_item)
+            selectors: the field selectors
+            orderby: orderby expression
 
-        @note: transactions can be filtered by earliest/latest date
-               using an S3DateFilter with selector="_transaction.date"
+        Note:
+            Transactions can be filtered by earliest/latest date
+            using an S3DateFilter with selector="_transaction.date"
 
-        @todo: does not take manual stock adjustments into account
-        @todo: does not represent sites or Waybill/GRN as
+        TODO:
+            Does not take manual stock adjustments into account
+            Does not represent sites or Waybill/GRN as
                links (breaks PDF export, but otherwise it's useful)
     """
 
@@ -14942,7 +16756,7 @@ def inv_track_item_quantity_needed(row):
         req_item_id = None
 
     if not req_item_id:
-        return current.messages["NONE"]
+        return NONE
 
     s3db = current.s3db
 
@@ -14967,7 +16781,7 @@ def inv_track_item_quantity_needed(row):
         quantity_needed = (rim.quantity - quantity_shipped) * \
                            row.supply_item_pack.quantity
     else:
-        return current.messages["NONE"]
+        return NONE
 
     return quantity_needed
 
@@ -14976,7 +16790,8 @@ def inv_update_commit_quantities_and_status(req):
     """
         Update commit quantities and status of an Inventory Requisition
 
-        @param req: the inv_req record (Row)
+        Args:
+            req: the inv_req record (Row)
     """
 
     db = current.db
@@ -15082,6 +16897,7 @@ def inv_stock_card_update(inv_item_ids,
                             iitable.site_id,
                             iitable.item_id,
                             iitable.item_source_no,
+                            iitable.supply_org_id,
                             iitable.expiry_date,
                             iitable.item_pack_id,
                             iitable.quantity,
@@ -15127,12 +16943,14 @@ def inv_stock_card_update(inv_item_ids,
         site_id = inv_item.site_id
         item_id = inv_item.item_id
         item_source_no = inv_item.item_source_no
+        supply_org_id = inv_item.supply_org_id
         expiry_date = inv_item.expiry_date
 
         # Search for existing Stock Card
         query = (sctable.site_id == site_id) & \
                 (sctable.item_id == item_id) & \
                 (sctable.item_source_no == item_source_no) & \
+                (sctable.supply_org_id == supply_org_id) & \
                 (sctable.expiry_date == expiry_date)
 
         exists = db(query).select(sctable.id,
@@ -15146,6 +16964,7 @@ def inv_stock_card_update(inv_item_ids,
                                      item_id = item_id,
                                      item_pack_id = packs_by_item[item_id],
                                      item_source_no = item_source_no,
+                                     supply_org_id = supply_org_id,
                                      expiry_date = expiry_date,
                                      )
             onaccept = s3db.get_config("inv_stock_card", "create_onaccept")
@@ -15163,7 +16982,9 @@ def inv_stock_card_update(inv_item_ids,
 
         if inv_quantity > binned_quantity:
             # We have some unbinned
-            bins.append(Storage(inv_inv_item_bin = Storage(layout_id = None)))
+            if binned_quantity > 0:
+                # We have some binned too, so the unbinned won't show as a separate row
+                bins.append(Storage(inv_inv_item_bin = Storage(layout_id = None)))
 
         # Read all matching inv_items
         query = (iitable.site_id == site_id) & \
@@ -15419,10 +17240,10 @@ def inv_warehouse_controller():
                 update_url = URL(f = "warehouse",
                                  args = ["[id]", "inv_item"],
                                  )
-                S3CRUD.action_buttons(r,
-                                      read_url = read_url,
-                                      update_url = update_url,
-                                      )
+                s3_action_buttons(r,
+                                  read_url = read_url,
+                                  update_url = update_url,
+                                  )
         else:
             cname = r.component_name
             if cname == "human_resource":
@@ -15433,11 +17254,11 @@ def inv_warehouse_controller():
                 update_url = URL(c="hrm", f="staff",
                                  args = ["[id]", "update"],
                                  )
-                S3CRUD.action_buttons(r,
-                                      read_url = read_url,
-                                      #delete_url = delete_url,
-                                      update_url = update_url,
-                                      )
+                s3_action_buttons(r,
+                                  read_url = read_url,
+                                  #delete_url = delete_url,
+                                  update_url = update_url,
+                                  )
         return output
     s3.postp = postp
 
@@ -15538,8 +17359,9 @@ class inv_ReqCheckMethod(S3Method):
         """
             Apply method.
 
-            @param r: the S3Request
-            @param attr: controller options for this request
+            Args:
+                r: the S3Request
+                attr: controller options for this request
         """
 
         T = current.T
@@ -15704,7 +17526,7 @@ class inv_ReqCheckMethod(S3Method):
                                                    args = [r.id, "send"],
                                                    vars = {"site_id": site_id},
                                                    ),
-                                       _class = "action-btn"
+                                       _class = "action-btn",
                                        )
                         s3.rfooter = TAG[""](commit_btn)
 
@@ -15730,7 +17552,7 @@ def inv_expiry_date_represent(date):
 
     dtstr = S3DateTime.date_represent(date, utc=True)
 
-    if date and datetime.datetime(date.year, date.month, date.day) < current.request.now:
+    if date and datetime.datetime(date.year, date.month, date.day) < current.request.utcnow:
         return SPAN(dtstr,
                     _class = "expired",
                     )
@@ -15763,9 +17585,10 @@ class inv_AdjRepresent(S3Represent):
         """
             Custom rows lookup
 
-            @param key: the key Field
-            @param values: the values
-            @param fields: never used for custom fns (retained for API compatibility)
+            Args:
+                key: the key Field
+                values: the values
+                fields: never used for custom fns (retained for API compatibility)
         """
 
         fields = self.fields
@@ -15794,10 +17617,12 @@ class inv_AdjRepresent(S3Represent):
             Represent the referenced row.
             (in foreign key representations)
 
-            @param row: the row
+            Args:
+                row: the row
 
-            @return: the representation of the Row, or None if there
-                     is an error in the Row
+            Returns:
+                The representation of the Row, or None if there
+                is an error in the Row
         """
 
         table = current.s3db.inv_adj
@@ -15833,9 +17658,10 @@ class inv_AdjItemRepresent(S3Represent):
         """
             Custom rows lookup
 
-            @param key: the key Field
-            @param values: the values
-            @param fields: never used for custom fns (retained for API compatibility)
+            Args:
+                key: the key Field
+                values: the values
+                fields: never used for custom fns (retained for API compatibility)
         """
 
         fields = self.fields
@@ -15870,10 +17696,12 @@ class inv_AdjItemRepresent(S3Represent):
             Represent the referenced row.
             (in foreign key representations)
 
-            @param row: the row
+            Args:
+                row: the row
 
-            @return: the representation of the Row, or None if there
-                     is an error in the Row
+            Returns:
+                The representation of the Row, or None if there
+                is an error in the Row
         """
 
         table = current.s3db.inv_adj_item
@@ -15908,9 +17736,10 @@ class inv_CommitRepresent(S3Represent):
         """
             Custom look-up of rows
 
-            @param key: the key field
-            @param values: the values to look up
-            @param fields: unused (retained for API compatibility)
+            Args:
+                key: the key field
+                values: the values to look up
+                fields: unused (retained for API compatibility)
         """
 
         table = self.table
@@ -15946,7 +17775,8 @@ class inv_CommitRepresent(S3Represent):
         """
             Represent a row
 
-            @param row: the Row
+            Args:
+                row: the Row
         """
 
         table = self.table
@@ -15977,7 +17807,11 @@ class inv_InvItemRepresent(S3Represent):
         Represent an Inventory Item
     """
 
-    def __init__(self):
+    def __init__(self,
+                 show_bin = True,
+                 ):
+
+        self.show_bin = show_bin
 
         super(inv_InvItemRepresent, self).__init__(lookup = "inv_inv_item")
 
@@ -15986,32 +17820,40 @@ class inv_InvItemRepresent(S3Represent):
         """
             Custom rows lookup
 
-            @param key: the key Field
-            @param values: the values
-            @param fields: never used for custom fns (retained for API compatibility)
+            Args:
+                key: the key Field
+                values: the values
+                fields: never used for custom fns (retained for API compatibility)
         """
+
+        show_bin = self.show_bin
 
         s3db = current.s3db
 
         itable = s3db.inv_inv_item
-        ibtable = s3db.inv_inv_item_bin
         stable = s3db.supply_item
 
+        fields = [itable.id,
+                  itable.expiry_date,
+                  itable.item_source_no,
+                  itable.owner_org_id,
+                  stable.name,
+                  #stable.um,
+                  ]
+
         left = [stable.on(stable.id == itable.item_id),
-                ibtable.on(ibtable.inv_item_id == itable.id),
                 ]
+
+        if show_bin:
+            ibtable = s3db.inv_inv_item_bin
+            fields.append(ibtable.layout_id)
+            left.append(ibtable.on(ibtable.inv_item_id == itable.id))
 
         if len(values) == 1:
             query = (key == values[0])
         else:
             query = key.belongs(values)
-        rows = current.db(query).select(itable.id,
-                                        stable.name,
-                                        stable.um,
-                                        itable.item_source_no,
-                                        ibtable.layout_id,
-                                        itable.expiry_date,
-                                        itable.owner_org_id,
+        rows = current.db(query).select(*fields,
                                         left = left
                                         )
 
@@ -16024,12 +17866,13 @@ class inv_InvItemRepresent(S3Represent):
             # Results cached in the represent class
             itable.owner_org_id.represent.bulk(organisation_ids)
 
-        # Bulk-represent Bins
-        layout_id = str(ibtable.layout_id)
-        layout_ids = [row[layout_id] for row in rows]
-        if layout_ids:
-            # Results cached in the represent class
-            ibtable.layout_id.represent.bulk(layout_ids)
+        if show_bin:
+            # Bulk-represent Bins
+            layout_id = str(ibtable.layout_id)
+            layout_ids = [row[layout_id] for row in rows]
+            if layout_ids:
+                # Results cached in the represent class
+                ibtable.layout_id.represent.bulk(layout_ids)
 
         return rows
 
@@ -16038,23 +17881,23 @@ class inv_InvItemRepresent(S3Represent):
         """
             Represent a row
 
-            @param row: the Row
+            Args:
+                row: the Row
         """
 
         s3db = current.s3db
 
-        itable = s3db.inv_inv_item
-        ibtable = s3db.inv_inv_item_bin
-
         iitem = row.inv_inv_item
-        bitem = row.inv_inv_item_bin
-        sitem = row.supply_item
 
         stringify = lambda string: string if string else ""
 
         ctn = stringify(iitem.item_source_no)
-        org = itable.owner_org_id.represent(iitem.owner_org_id)
-        item_bin = ibtable.layout_id.represent(bitem.layout_id)
+        org = s3db.inv_inv_item.owner_org_id.represent(iitem.owner_org_id)
+
+        if self.show_bin:
+            item_bin = s3db.inv_inv_item_bin.layout_id.represent(row.inv_inv_item_bin.layout_id)
+        else:
+            item_bin = None
 
         expires = iitem.expiry_date
         if expires:
@@ -16063,11 +17906,9 @@ class inv_InvItemRepresent(S3Represent):
         else:
             expires = ""
 
-        NONE = current.messages["NONE"]
-
         items = []
         append = items.append
-        for string in [sitem.name, expires, ctn, org, item_bin]:
+        for string in [row.supply_item.name, expires, ctn, org, item_bin]:
             if string and string != NONE:
                 append(string)
                 append(" - ")
@@ -16097,7 +17938,8 @@ class inv_PackageRepresent(S3Represent):
         """
             Represent a row
 
-            @param row: the Row
+            Args:
+                row: the Row
         """
 
         v = "%s %s" % (current.db.inv_package.type.represent(row.type),
@@ -16140,9 +17982,10 @@ class inv_RecvRepresent(S3Represent):
         """
             Custom rows lookup
 
-            @param key: the key Field
-            @param values: the values
-            @param fields: never used for custom fns (retained for API compatibility)
+            Args:
+                key: the key Field
+                values: the values
+                fields: never used for custom fns (retained for API compatibility)
         """
 
         fields = self.fields
@@ -16177,7 +18020,8 @@ class inv_RecvRepresent(S3Represent):
         """
             Represent a row
 
-            @param row: the Row
+            Args:
+                row: the Row
         """
 
         v = row.recv_ref
@@ -16209,6 +18053,104 @@ class inv_RecvRepresent(S3Represent):
         return v
 
 # =============================================================================
+class inv_RecvWizard(S3CrudWizard):
+    """
+        Wizard for Receiving a New Shipment
+    """
+
+    def __init__(self):
+
+        T = current.T
+
+        super(inv_RecvWizard, self).__init__()
+
+        self.pages = [{"page": "recv",
+                       "label": T("Incoming Shipment"),
+                       },
+                      {"page": "items",
+                       "label": T("Add Items"),
+                       "component": "track_item",
+                       "required": True,
+                       },
+                      {"page": "bins",
+                       "label": T("Allocate to Bins"),
+                       "component": "track_item",
+                       },
+                      {"page": "document",
+                       "label": "%s %s" % (T("Upload"),
+                                           current.deployment_settings.get_inv_recv_shortname(),
+                                           ),
+                       "component": "document",
+                       },
+                      {"page": "process",
+                       "label": T("Process"),
+                       },
+                      ]
+
+    # -------------------------------------------------------------------------
+    def __call__(self, r, **attr):
+    
+        if r.record and r.record.status not in (SHIP_STATUS_SENT,
+                                                SHIP_STATUS_IN_PROCESS,
+                                                ):
+            # Cannot use the Wizard
+            redirect(r.url(method = "",
+                           component = "",
+                           vars = {},
+                           ))
+
+        get_vars = r.get_vars
+        current_page = get_vars.get("page")
+        if current_page == "process":
+            # Return a button to Process the Incoming Shipment
+            T = current.T
+            # Script already added as rheader being run, even though not displayed in page
+            #current.response.s3.scripts.append("/%s/static/scripts/S3/s3.inv_recv_rheader.js" % r.application)
+            next_btn = A(T("Finish"),
+                         _href = URL(c = "inv",
+                                     f = "recv",
+                                     args = [r.id,
+                                             "process",
+                                             ],
+                                     ),
+                         _id = "recv-process",
+                         _class = "crud-submit-button button small next",
+                         )
+            return {"form": DIV(P(T("Clicking Finish will add all the Items from the Shipment to the Inventory.")),
+                                P(T("This step cannot be reversed.")),
+                                ),
+                    "controls": self._controls(r, next_btn=next_btn),
+                    "header": self._header(r),
+                    }
+
+        elif current_page == "bins":
+            # Check to see if we can streamline as we only have 1 item
+            # @ToDo: Make this a default if insertable = False?
+            record_id = r.id
+            s3db = current.s3db
+            ttable = s3db.inv_track_item
+            items = current.db(ttable.recv_id == record_id).select(ttable.id,
+                                                                   limitby = (0, 2),
+                                                                   )
+            if len(items) == 1:
+                if not r.component_id:
+                    # Open this record rather than list view
+                    redirect(r.url(component_id = items.first().id))
+                else:
+                    current.response.s3.crud.submit_button = "Next"
+                    if r.http == "POST":
+                        next_vars = dict(get_vars)
+                        next_vars["page"] = "document"
+                        self.method.next = r.url(id = record_id,
+                                                 component = "document",
+                                                 component_id = 0,
+                                                 method = "wizard",
+                                                 vars = next_vars,
+                                                 )
+
+        return super(inv_RecvWizard, self).__call__(r, **attr)
+
+# =============================================================================
 class inv_ReqRepresent(S3Represent):
     """
         Represent an Inventory Requisition
@@ -16231,9 +18173,10 @@ class inv_ReqRepresent(S3Represent):
         """
             Custom rows lookup
 
-            @param key: the key Field
-            @param values: the values
-            @param fields: never used for custom fns (retained for API compatibility)
+            Args:
+                key: the key Field
+                values: the values
+                fields: never used for custom fns (retained for API compatibility)
         """
 
         fields = self.fields
@@ -16261,7 +18204,8 @@ class inv_ReqRepresent(S3Represent):
         """
             Represent a row
 
-            @param row: the Row
+            Args:
+                row: the Row
         """
 
         if row.req_ref:
@@ -16295,9 +18239,10 @@ class inv_ReqItemRepresent(S3Represent):
         """
             Custom look-up of rows
 
-            @param key: the key field
-            @param values: the values to look up
-            @param fields: unused (retained for API compatibility)
+            Args:
+                key: the key field
+                values: the values to look up
+                fields: unused (retained for API compatibility)
         """
 
         ritable = self.table
@@ -16323,7 +18268,8 @@ class inv_ReqItemRepresent(S3Represent):
         """
             Represent a row
 
-            @param row: the Row
+            Args:
+                row: the Row
         """
 
         if not hasattr(row, "supply_item"):
@@ -16351,20 +18297,142 @@ class inv_ReqRefRepresent(S3Represent):
                                                   show_link = show_link,
                                                   )
 
+    
+
+    # -------------------------------------------------------------------------
+    def _lookup(self, values, rows=None):
+        """
+            Lazy lookup values.
+
+            Args:
+                values: list of values to lookup
+                rows: rows referenced by values (if values are foreign keys)
+                      optional
+
+            Modified from super to NOT int values (otherwise req_refs like '00001' fail!)
+        """
+
+        theset = self.theset
+
+        keys = {}
+        items = {}
+        lookup = {}
+
+        # Check whether values are already in theset
+        table = self.table
+        for _v in values:
+            v = _v
+            keys[v] = _v
+            if v is None:
+                items[_v] = self.none
+            elif v in theset:
+                items[_v] = theset[v]
+            else:
+                lookup[v] = True
+
+        if table is None or not lookup:
+            return items
+
+        if table and self.hierarchy:
+            # Does the lookup table have a hierarchy?
+            from .s3hierarchy import S3Hierarchy
+            h = S3Hierarchy(table._tablename)
+            if h.config:
+                def lookup_parent(node_id):
+                    parent = h.parent(node_id)
+                    if parent and \
+                       parent not in theset and \
+                       parent not in lookup:
+                        lookup[parent] = False
+                        lookup_parent(parent)
+                    return
+                for node_id in list(lookup.keys()):
+                    lookup_parent(node_id)
+            else:
+                h = None
+        else:
+            h = None
+
+        # Get the primary key
+        pkey = self.key
+        ogetattr = object.__getattribute__
+        try:
+            key = ogetattr(table, pkey)
+        except AttributeError:
+            return items
+
+        # Use the given rows to lookup the values
+        pop = lookup.pop
+        represent_row = self.represent_row
+        represent_path = self._represent_path
+        if rows and not self.custom_lookup:
+            rows_ = dict((row[key], row) for row in rows)
+            self.rows.update(rows_)
+            for row in rows:
+                k = row[key]
+                if k not in theset:
+                    if h:
+                        theset[k] = represent_path(k,
+                                                   row,
+                                                   rows = rows_,
+                                                   hierarchy = h,
+                                                   )
+                    else:
+                        theset[k] = represent_row(row)
+                if pop(k, None):
+                    items[keys.get(k, k)] = theset[k]
+
+        # Retrieve additional rows as needed
+        if lookup:
+            if not self.custom_lookup:
+                try:
+                    # Need for speed: assume all fields are in table
+                    fields = [ogetattr(table, f) for f in self.fields]
+                except AttributeError:
+                    # Ok - they are not: provide debug output and filter fields
+                    current.log.error(sys.exc_info()[1])
+                    fields = [ogetattr(table, f)
+                              for f in self.fields if hasattr(table, f)]
+            else:
+                fields = []
+            rows = self.lookup_rows(key, list(lookup.keys()), fields=fields)
+            rows = {row[key]: row for row in rows}
+            self.rows.update(rows)
+            if h:
+                for k, row in rows.items():
+                    if lookup.pop(k, None):
+                        items[keys.get(k, k)] = represent_path(k,
+                                                               row,
+                                                               rows = rows,
+                                                               hierarchy = h,
+                                                               )
+            else:
+                for k, row in rows.items():
+                    lookup.pop(k, None)
+                    items[keys.get(k, k)] = theset[k] = represent_row(row)
+
+        # Anything left gets set to default
+        if lookup:
+            for k in lookup:
+                items[keys.get(k, k)] = self.default
+
+        return items
+
     # -------------------------------------------------------------------------
     def lookup_rows(self, key, values, fields=None):
         """
             Lookup all rows referenced by values.
             (in foreign key representations)
 
-            @param key: the key Field
-            @param values: the values
-            @param fields: the fields to retrieve
+            Args:
+                key: the key Field
+                values: the values
+                fields: the fields to retrieve
         """
 
-        fields = ["id",
+        fields = ("id",
                   "req_ref",
-                  ]
+                  )
 
         if len(values) == 1:
             query = (key == values[0])
@@ -16386,13 +18454,14 @@ class inv_ReqRefRepresent(S3Represent):
                 - In the base class, the linkto-parameter expects a URL (as
                   string) with "[id]" as placeholder for the key.
 
-            @param k: the key
-            @param v: the representation of the key
-            @param row: the row with this key (unused in the base class)
+            Args:
+                k: the key
+                v: the representation of the key
+                row: the row with this key (unused in the base class)
         """
 
         if self.linkto:
-            k = s3_str(row.id)
+            k = str(row.id)
             _href = self.linkto.replace("[id]", k) \
                                .replace("%5Bid%5D", k)
             
@@ -16400,7 +18469,9 @@ class inv_ReqRefRepresent(S3Represent):
                 _href = "%s/%s" % (_href,
                                    "form",
                                    )
-            return A(v, _href=_href)
+            return A(v,
+                     _href = _href,
+                     )
         else:
             return v
 
@@ -16409,10 +18480,11 @@ class inv_ReqRefRepresent(S3Represent):
         """
             Represent a row
 
-            @param row: the Row
+            Args:
+                row: the Row
         """
 
-        return row.req_ref or current.messages["NONE"]
+        return row.req_ref or NONE
 
 # =============================================================================
 class inv_SendRepresent(S3Represent):
@@ -16446,9 +18518,10 @@ class inv_SendRepresent(S3Represent):
         """
             Custom rows lookup
 
-            @param key: the key Field
-            @param values: the values
-            @param fields: never used for custom fns (retained for API compatibility)
+            Args:
+                key: the key Field
+                values: the values
+                fields: never used for custom fns (retained for API compatibility)
         """
 
         fields = self.fields
@@ -16477,7 +18550,8 @@ class inv_SendRepresent(S3Represent):
         """
             Represent a row
 
-            @param row: the Row
+            Args:
+                row: the Row
         """
 
 
@@ -16503,6 +18577,123 @@ class inv_SendRepresent(S3Represent):
         return v
 
 # =============================================================================
+class inv_SendWizard(S3CrudWizard):
+    """
+        Wizard for Sending a New Shipment
+    """
+
+    def __init__(self):
+
+        T = current.T
+
+        super(inv_SendWizard, self).__init__()
+
+        self.pages = [{"page": "send",
+                       "label": T("Outgoing Shipment"),
+                       },
+                      {"page": "items",
+                       "label": T("Add Items"),
+                       "component": "track_item",
+                       "required": True,
+                       },
+                      {"page": "packaging",
+                       "label": T("Packaging"),
+                       "component": "send_package",
+                       },
+                      {"page": "document",
+                       "label": "%s %s" % (T("Upload"),
+                                           current.deployment_settings.get_inv_send_shortname(),
+                                           ),
+                       "component": "document",
+                       },
+                      {"page": "process",
+                       "label": T("Process"),
+                       },
+                      ]
+
+    # -------------------------------------------------------------------------
+    def __call__(self, r, **attr):
+    
+        if r.record and r.record.status != SHIP_STATUS_IN_PROCESS:
+            # Cannot use the Wizard
+            redirect(r.url(method = "",
+                           component = "",
+                           vars = {},
+                           ))
+
+        current_page = r.get_vars.get("page")
+        if current_page == "process":
+            # Return a button to Process the Outgoing Shipment
+            T = current.T
+            # Script already added as rheader being run, even though not displayed in page
+            #current.response.s3.scripts.append("/%s/static/scripts/S3/s3.inv_send_rheader.js" % r.application)
+            next_btn = A(T("Finish"),
+                         _href = URL(c = "inv",
+                                     f = "send",
+                                     args = [r.id,
+                                             "process",
+                                             ],
+                                     ),
+                         _id = "send-process",
+                         _class = "crud-submit-button button small next",
+                         )
+            return {"form": DIV(P(T("Clicking Finish will lock the Sent Shipment, create an Inbound Shipment for the recipient Site, update Stock Cards and update Request Status(es).")),
+                                P(T("This step cannot be reversed.")),
+                                ),
+                    "controls": self._controls(r, next_btn=next_btn),
+                    "header": self._header(r),
+                    }
+
+        elif current_page == "items":
+            # Add a button to print the Picking List
+            current.response.s3.wizard_buttons = DIV(A(ICON("print"),
+                                                       " ",
+                                                       current.T("Picking List"),
+                                                       _href = URL(args = [r.id,
+                                                                           "pick_list.xls",
+                                                                           ]
+                                                                   ),
+                                                       _class = "action-btn",
+                                                       ),
+                                                     _class = "wizard-btns",
+                                                     )
+
+        elif current_page == "packaging":
+            # Add buttons to print the Labels, Packing List and Gift Certificate
+            T = current.T
+            current.response.s3.wizard_buttons = DIV(A(ICON("print"),
+                                                       " ",
+                                                       T("Labels"),
+                                                       _href = URL(args = [r.id,
+                                                                           "labels.xls",
+                                                                           ]
+                                                                   ),
+                                                       _class = "action-btn",
+                                                       ),
+                                                     A(ICON("print"),
+                                                       " ",
+                                                       T("Packing List"),
+                                                       _href = URL(args = [r.id,
+                                                                           "packing_list.xls",
+                                                                           ]
+                                                                   ),
+                                                       _class = "action-btn",
+                                                       ),
+                                                     A(ICON("print"),
+                                                       " ",
+                                                       T("Gift Certificate"),
+                                                       _href = URL(args = [r.id,
+                                                                           "gift_certificate.xls",
+                                                                           ]
+                                                                   ),
+                                                       _class = "action-btn",
+                                                       ),
+                                                     _class = "wizard-btns",
+                                                     )
+
+        return super(inv_SendWizard, self).__call__(r, **attr)
+
+# =============================================================================
 class inv_TrackItemRepresent(S3Represent):
 
     def __init__(self):
@@ -16519,9 +18710,10 @@ class inv_TrackItemRepresent(S3Represent):
         """
             Custom look-up of rows
 
-            @param key: the key field
-            @param values: the values to look up
-            @param fields: unused (retained for API compatibility)
+            Args:
+                key: the key field
+                values: the values to look up
+                fields: unused (retained for API compatibility)
         """
 
         fields = self.fields
@@ -16549,12 +18741,13 @@ class inv_TrackItemRepresent(S3Represent):
         """
             Represent a row
 
-            @param row: the Row
+            Args:
+                row: the Row
         """
 
         send_inv_item_id = row.send_inv_item_id
         if not send_inv_item_id:
-            return str(row.id)
+            return NONE
 
         return current.db.inv_track_item.send_inv_item_id.represent(send_inv_item_id,
                                                                     show_link = False,

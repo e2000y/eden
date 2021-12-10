@@ -57,7 +57,10 @@ import s3menus as default_menus
 S3MainMenu = default_menus.S3MainMenu
 S3OptionsMenu = default_menus.S3OptionsMenu
 
-current.menu = Storage(oauth="", options=None, override={})
+current.menu = Storage(oauth = "",
+                       options = None,
+                       override = {},
+                       )
 if auth.permission.format == "html":
 
     # NB cascading templates:
@@ -133,9 +136,10 @@ def s3_rest_controller(prefix=None, resourcename=None, **attr):
     """
         Helper function to apply the S3Resource REST interface
 
-        @param prefix: the application prefix
-        @param resourcename: the resource name (without prefix)
-        @param attr: additional keyword parameters
+        Args:
+            prefix: the application prefix
+            resourcename: the resource name (without prefix)
+            attr: additional keyword parameters
 
         Any keyword parameters will be copied into the output dict (provided
         that the output is a dict). If a keyword parameter is callable, then
@@ -209,7 +213,7 @@ def s3_rest_controller(prefix=None, resourcename=None, **attr):
     from s3 import S3Compose, S3Filter, S3GroupedItemsReport, S3HierarchyCRUD, \
                    S3Importer, S3Map, S3Merge, S3MobileCRUD, S3Organizer, \
                    S3OrgRoleManager, S3Profile, S3Report, S3Summary, \
-                   S3TimePlot, S3XForms, search_ac
+                   S3TimePlot, S3XForms, S3Wizard, search_ac
     from s3db.cms import S3CMS
 
     set_handler = r.set_handler
@@ -235,6 +239,7 @@ def s3_rest_controller(prefix=None, resourcename=None, **attr):
     set_handler("summary", S3Summary)
     set_handler("timeplot", S3TimePlot)
     set_handler("xform", S3XForms)
+    set_handler("wizard", S3Wizard)
 
     # Don't load S3PDF unless needed (very slow import with Reportlab)
     method = r.method
@@ -255,6 +260,7 @@ def s3_rest_controller(prefix=None, resourcename=None, **attr):
                          "approve",
                          "reject",
                          "deduplicate",
+                         "wizard",
                          )
 
     # Execute the request
@@ -306,10 +312,12 @@ def s3_rest_controller(prefix=None, resourcename=None, **attr):
             copyable = get_config(tablename, "copyable", False)
 
             # URL to open the resource
-            open_url = s3base.S3CRUD._linkto(r,
-                                             authorised = authorised,
-                                             update = editable,
-                                             native = native)("[id]")
+            from s3 import S3CRUD
+            open_url = S3CRUD._linkto(r,
+                                      authorised = authorised,
+                                      update = editable,
+                                      native = native,
+                                      )("[id]")
 
             # Add action buttons for Open/Delete/Copy as appropriate
             s3_action_buttons(r,
@@ -326,7 +334,6 @@ def s3_rest_controller(prefix=None, resourcename=None, **attr):
             # the primary key into get_vars for automatic linking
             if native and not listadd and \
                auth.s3_has_permission("create", tablename):
-                from s3 import S3CRUD
                 label = S3CRUD.crud_string(tablename, "label_create")
                 component = r.resource.components[name]
                 fkey = "%s.%s" % (name, component.fkey)

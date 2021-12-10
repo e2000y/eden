@@ -935,14 +935,16 @@ def config(settings):
             Function to configure an organisation_id field to be restricted to just
             NS/Branch
 
-            @param required: Field is mandatory
-            @param branches: Include Branches
-            @param updateable: Limit to Orgs which the user can update
-            @param limit_filter_opts: Also limit the Filter options
-            @param hierarchy: Use the hierarchy widget (unsuitable for use in Inline Components)
+            Args:
+                required: Field is mandatory
+                branches: Include Branches
+                updateable: Limit to Orgs which the user can update
+                limit_filter_opts: Also limit the Filter options
+                hierarchy: Use the hierarchy widget (unsuitable for use in Inline Components)
 
-            NB If limit_filter_opts=True, apply in customise_xx_controller inside prep,
-               after standard_prep is run
+            Note:
+                If limit_filter_opts=True, apply in customise_xx_controller inside prep,
+                after standard_prep is run
         """
 
         # Lookup organisation_type_id for Red Cross
@@ -1973,7 +1975,8 @@ def config(settings):
         """
             Check whether a Survey has been Approved/Rejected & notify OM if not
 
-            @param target_id: Target record_id
+            Args:
+                target_id: Target record_id
         """
 
         #from gluon import URL
@@ -2077,7 +2080,8 @@ def config(settings):
         """
             Notify EO & MFP that a Survey Report is ready
 
-            @param target_id: Target record_id
+            Args:
+                target_id: Target record_id
         """
 
         from gluon import URL
@@ -2341,9 +2345,9 @@ def config(settings):
 
         #    if r.interactive and r.component_name == "response":
         #        from gluon import URL
-        #        from s3 import S3CRUD
+        #        from s3 import s3_action_buttons
         #        open_url = URL(f="respnse", args = ["[id]", "answer"])
-        #        S3CRUD.action_buttons(r, read_url=open_url, update_url=open_url)
+        #        s3_action_buttons(r, read_url=open_url, update_url=open_url)
 
         #    return output
         #s3.postp = custom_postp
@@ -2697,8 +2701,9 @@ def config(settings):
         """
             Notify Event Organiser (EO) that they should consider sending out a Survey
 
-            @param training_event_id: (Training) Event record_id
-            @param survey_type: Survey Type (3 month or 6 month currently)
+            Args:
+                training_event_id: (Training) Event record_id
+                survey_type: Survey Type (3 month or 6 month currently)
         """
 
         try:
@@ -4037,7 +4042,8 @@ def config(settings):
         """
             Representation of Emergency Contacts (S3Represent label renderer)
 
-            @param row: the row
+            Args:
+                row: the row
         """
 
         name = row["pr_contact_emergency.name"] or current.messages["NONE"]
@@ -4237,11 +4243,12 @@ def config(settings):
         """
             dataList item renderer for 'Other Information' on the Surge Member Profile
 
-            @param list_id: the HTML ID of the list
-            @param item_id: the HTML ID of the item
-            @param resource: the S3Resource to render
-            @param rfields: the S3ResourceFields to render
-            @param record: the record as dict
+            Args:
+                list_id: the HTML ID of the list
+                item_id: the HTML ID of the item
+                resource: the S3Resource to render
+                rfields: the S3ResourceFields to render
+                record: the record as dict
         """
 
         raw = record._row
@@ -4930,10 +4937,14 @@ def config(settings):
                     from s3 import S3OptionsFilter
 
                     # Add gender filter
-                    gender_opts = dict(s3db.pr_gender_opts)
-                    del gender_opts[1]
+                    gender_opts = s3db.pr_gender_opts
+                    if 1 in gender_opts:
+                        gender_options = dict(gender_opts)
+                        del gender_options[1]
+                    else:
+                        gender_options = gender_opts
                     append_filter(S3OptionsFilter("person_id$gender",
-                                                  options = gender_opts,
+                                                  options = gender_options,
                                                   cols = 3,
                                                   hidden = True,
                                                   ))
@@ -6367,7 +6378,7 @@ def config(settings):
                                               "status",
                                               #"driver_name",
                                               #"driver_phone",
-                                              #"vehicle_plate_no",
+                                              #"registration_no",
                                               #"time_out",
                                               "comments",
                                               ],
@@ -8458,8 +8469,9 @@ def config(settings):
             Inject JS for progressive revelation of household form,
             to be called from prep
 
-            @param r: the S3Request
-            @param record: the household record
+            Args:
+                r: the S3Request
+                record: the household record
         """
 
         if r.interactive:
@@ -9123,9 +9135,10 @@ class hrm_CourseRepresent(S3Represent):
         self.organisation_id = organisation_id
 
         super(hrm_CourseRepresent,
-              self).__init__(lookup="hrm_course",
-                             #none="",
-                             translate=True)
+              self).__init__(lookup = "hrm_course",
+                             #none = "",
+                             translate = True,
+                             )
 
     # -------------------------------------------------------------------------
     def lookup_rows(self, key, values, fields=None):
@@ -9133,9 +9146,10 @@ class hrm_CourseRepresent(S3Represent):
             Lookup all rows referenced by values.
             (in foreign key representations)
 
-            @param key: the key Field
-            @param values: the values
-            @param fields: the fields to retrieve
+            Args:
+                key: the key Field
+                values: the values
+                fields: the fields to retrieve
         """
 
         table = self.table

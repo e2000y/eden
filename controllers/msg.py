@@ -1579,7 +1579,6 @@ def twitter_search():
     table.is_searched.readable = False
 
     # Tweak languages to those supported by Twitter
-    S3Msg = s3base.S3Msg()
     try:
         import tweepy
     except:
@@ -1869,7 +1868,7 @@ def parser():
             import inspect
             import sys
 
-            from s3 import S3Represent
+            from s3 import IS_ONE_OF, S3Represent
 
             template = settings.get_msg_parser()
             module_name = "applications.%s.modules.templates.%s.parser" % \
@@ -2081,6 +2080,7 @@ def recipient_represent(id, default_label=""):
                                               limitby = (0, 1),
                                               ).first()
         if person:
+            from s3 import s3_fullname
             output = s3_fullname(person)
     elif instance_type == "pr_group":
         group = db(table.pe_id == id).select(table.name,

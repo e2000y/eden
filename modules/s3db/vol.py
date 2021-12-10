@@ -39,8 +39,6 @@ __all__ = ("VolunteerModel",
 
 import json
 
-from collections import OrderedDict
-
 from gluon import *
 from gluon.storage import Storage
 
@@ -504,7 +502,7 @@ $.filterOptionsS3({
                      *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
-        return {}
+        return None
 
 # =============================================================================
 def vol_activity_hours_month(row):
@@ -514,15 +512,16 @@ def vol_activity_hours_month(row):
 
         Requires "date" to be in the additional report_fields
 
-        @param row: the Row
+        Args:
+            row: the Row
     """
 
     try:
         thisdate = row["vol_activity_hours.date"]
     except AttributeError:
-        return current.messages["NONE"]
+        return NONE
     if not thisdate:
-        return current.messages["NONE"]
+        return NONE
 
     #thisdate = thisdate.date()
     month = thisdate.month
@@ -718,7 +717,7 @@ class VolunteerAwardModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return {}
+        return None
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -726,9 +725,11 @@ class VolunteerAwardModel(S3Model):
         """
             File representation
 
-            @param filename: the stored file name (field value)
+            Args:
+                filename: the stored file name (field value)
 
-            @return: a link to download the file
+            Returns:
+                A (link to download the file)
         """
 
         if filename:
@@ -740,9 +741,12 @@ class VolunteerAwardModel(S3Model):
                 return current.T("File not found")
             else:
                 return A(origname,
-                         _href=URL(c="default", f="download", args=[filename]))
+                         _href = URL(c="default", f="download",
+                                     args = [filename],
+                                     ),
+                         )
         else:
-            return current.messages["NONE"]
+            return NONE
 
 # =============================================================================
 class VolunteerClusterModel(S3Model):
@@ -975,30 +979,21 @@ def vol_service_record(r, **attr):
 
         # Header
         s3db = current.s3db
-        otable = db.org_organisation
-        org_id = record.organisation_id
-        org = db(otable.id == org_id).select(otable.name,
-                                             otable.acronym, # Present for consistent cache key
-                                             otable.logo,
-                                             limitby = (0, 1),
-                                             ).first()
+        organisation_id = record.organisation_id
         if settings.get_L10n_translate_org_organisation():
-            org_name = s3db.org_OrganisationRepresent(parent = False,
-                                                      acronym = False)(org_id)
+            from .org import org_OrganisationRepresent
+            org_name = org_OrganisationRepresent(parent = False,
+                                                 acronym = False,
+                                                 )(organisation_id)
         else:
+            otable = db.org_organisation
+            org = db(otable.id == organisation_id).select(otable.name,
+                                                          limitby = (0, 1),
+                                                          ).first()
             org_name = org.name
 
-        logo = org.logo
-        if logo:
-            logo = s3db.org_organisation_logo(org)
-        elif settings.get_org_branches():
-            root_org = current.cache.ram(
-                # Common key with auth.root_org
-                "root_org_%s" % org_id,
-                lambda: s3db.org_root_organisation(org_id),
-                time_expire=120
-                )
-            logo = s3db.org_organisation_logo(root_org)
+        from .org import org_organisation_logo
+        logo = org_organisation_logo(organisation_id)
 
         inner_table = TABLE(TR(TH(vol_name)),
                             TR(TD(org_name)))
@@ -1182,7 +1177,6 @@ def vol_service_record(r, **attr):
                                     left = left,
                                     orderby = ~hrstable.date,
                                     )
-            NONE = current.messages["NONE"]
             for row in rows:
                 _row = row["vol_activity_hours"]
                 _date = _row.date
@@ -1244,7 +1238,6 @@ def vol_service_record(r, **attr):
                                     left = left,
                                     orderby = ~hrstable.date,
                                     )
-            NONE = current.messages["NONE"]
             for row in rows:
                 _row = row["hrm_programme_hours"]
                 _date = _row.date
@@ -1485,16 +1478,16 @@ def vol_volunteer_controller():
     def postp(r, output):
         if r.interactive and not r.component:
             # Configure action buttons
-            S3CRUD.action_buttons(r, deletable=settings.get_hrm_deletable())
+            s3_action_buttons(r, deletable=settings.get_hrm_deletable())
             if settings.has_module("msg") and \
                settings.get_hrm_compose_button() and \
                current.auth.permission.has_permission("update", c="hrm", f="compose"):
                 # @ToDo: Remove this now that we have it in Events?
-                s3.actions.append({"url": URL(f = "compose",
+                s3.actions.append({"label": str(T("Send Message")),
+                                   "url": URL(f = "compose",
                                               vars = {"human_resource.id": "[id]"},
                                               ),
                                    "_class": "action-btn send",
-                                   "label": str(T("Send Message")),
                                    })
 
         elif r.representation == "plain":
@@ -1622,45 +1615,48 @@ def vol_person_controller():
             )
 
     # Import pre-process
-    def import_prep(data, group=group):
+    def import_prep(tree, group=group):
         """
             Deletes all HR records (of the given group) of the organisation
             before processing a new data import, used for the import_prep
             hook in response.s3
         """
-        if s3.import_replace:
-            resource, tree = data
-            if tree is not None:
-                xml = current.xml
-                tag = xml.TAG
-                att = xml.ATTRIBUTE
+        if s3.import_replace and tree is not None:
+            xml = current.xml
+            tag = xml.TAG
+            att = xml.ATTRIBUTE
 
-                if group == "staff":
-                    group = 1
-                elif group == "volunteer":
-                    group = 2
-                else:
-                    return # don't delete if no group specified
+            if group == "staff":
+                group = 1
+            elif group == "volunteer":
+                group = 2
+            else:
+                return # don't delete if no group specified
 
-                root = tree.getroot()
-                expr = "/%s/%s[@%s='org_organisation']/%s[@%s='name']" % \
-                       (tag.root, tag.resource, att.name, tag.data, att.field)
-                orgs = root.xpath(expr)
-                for org in orgs:
-                    org_name = org.get("value", None) or org.text
-                    if org_name:
-                        try:
-                            org_name = json.loads(xml.xml_decode(org_name))
-                        except:
-                            pass
-                    if org_name:
-                        htable = s3db.hrm_human_resource
-                        otable = s3db.org_organisation
-                        query = (otable.name == org_name) & \
-                                (htable.organisation_id == otable.id) & \
-                                (htable.type == group)
-                        resource = s3db.resource("hrm_human_resource", filter=query)
-                        resource.delete(format="xml", cascade=True)
+            root = tree.getroot()
+            expr = "/%s/%s[@%s='org_organisation']/%s[@%s='name']" % \
+                   (tag.root, tag.resource, att.name, tag.data, att.field)
+            orgs = root.xpath(expr)
+            for org in orgs:
+                org_name = org.get("value", None) or org.text
+                if org_name:
+                    try:
+                        org_name = json.loads(xml.xml_decode(org_name))
+                    except:
+                        pass
+                if org_name:
+                    htable = s3db.hrm_human_resource
+                    otable = s3db.org_organisation
+                    query = (otable.name == org_name) & \
+                            (htable.organisation_id == otable.id) & \
+                            (htable.type == group)
+                    resource = s3db.resource("hrm_human_resource",
+                                             filter = query,
+                                             )
+                    resource.delete(format = "xml",
+                                    cascade = True,
+                                    )
+
     s3.import_prep = import_prep
 
     # CRUD pre-process

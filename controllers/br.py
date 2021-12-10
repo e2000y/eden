@@ -195,6 +195,7 @@ def person():
 
                 # Limit selectable need types to the case root org
                 if org_specific_needs and root_org:
+                    from s3 import IS_ONE_OF
                     field = atable.need_id
                     field.requires = IS_EMPTY_OR(
                                         IS_ONE_OF(db, "br_need.id",
@@ -210,6 +211,7 @@ def person():
                     if settings.get_br_assistance_themes() and root_org:
                         # Limit selectable themes to the case root org
                         field = mtable.theme_ids
+                        from s3 import IS_ONE_OF
                         from s3db.br import br_org_assistance_themes
                         dbset = br_org_assistance_themes(root_org)
                         field.requires = IS_EMPTY_OR(IS_ONE_OF(dbset, "br_assistance_theme.id",
@@ -254,6 +256,7 @@ def person():
                 if not root_org:
                     root_org = auth.root_org()
                 if root_org:
+                    from s3 import IS_ONE_OF
                     from s3db.br import br_org_assistance_themes
                     dbset = br_org_assistance_themes(root_org)
                     field = mtable.theme_ids
@@ -309,12 +312,15 @@ def person():
             field.label = T("ID")
             field.comment = None
 
-            # Make gender mandatory, remove "unknown"
             field = table.gender
             field.default = None
-            options = dict(s3db.pr_gender_opts)
-            del options[1] # Remove "unknown"
-            field.requires = IS_PERSON_GENDER(options, sort=True)
+            gender_opts = s3db.pr_gender_opts
+            if 1 in gender_opts:
+                # Make gender mandatory, remove "unknown"
+                options = dict(gender_opts)
+                del options[1] # Remove "unknown"
+                from s3 import IS_PERSON_GENDER
+                field.requires = IS_PERSON_GENDER(options, sort=True)
 
             # Configure case.organisation_id
             field = ctable.organisation_id
@@ -594,6 +600,7 @@ def group_membership():
                     # Single group ID?
                     group_id = tuple(group_ids)[0] if len(group_ids) == 1 else None
                 elif r.http == "POST":
+                    from s3 import s3_fullname
                     name = s3_fullname(record_id)
                     group_id = gtable.insert(name = name,
                                              group_type = 7,
@@ -609,8 +616,8 @@ def group_membership():
                 group_ids = set()
 
             # Add-Person widget to use BR controller and expose pe_label
+            from s3 import IS_ONE_OF, S3AddPersonWidget
             from s3db.pr import pr_PersonRepresent
-            from s3 import S3AddPersonWidget
             field = table.person_id
             field.represent = pr_PersonRepresent(show_link = True)
             field.widget = S3AddPersonWidget(controller = "br",
@@ -855,6 +862,7 @@ def document():
         else:
             # Multiple doc_ids => default to case, make selectable
             field.readable = field.writable = True
+            from s3 import IS_ONE_OF
             field.requires = IS_ONE_OF(db, "doc_entity.doc_id",
                                        field.represent,
                                        filterby = "doc_id",
@@ -878,20 +886,14 @@ def document():
 def case_activity():
     """ Case Activities: RESTful CRUD controller """
 
-    def prep(r):
+    def prep(r, can_see_cases=True):
 
         resource = r.resource
         table = resource.table
 
-        labels = s3db.br_terminology()
+        from s3db.br import br_terminology
+        labels = br_terminology()
         human_resource_id = auth.s3_logged_in_human_resource()
-
-        # Filter for valid+open cases
-        query = (FS("person_id$case.id") != None) & \
-                (FS("person_id$case.invalid") == False) & \
-                (FS("person_id$case.status_id$is_closed") == False)
-
-        resource.add_filter(query)
 
         if not r.record:
 
@@ -953,13 +955,12 @@ def case_activity():
 
             if case_activity_status:
                 stable = s3db.br_case_activity_status
-                query = (stable.deleted == False)
-                rows = db(query).select(stable.id,
-                                        stable.name,
-                                        stable.is_closed,
-                                        cache = s3db.cache,
-                                        orderby = stable.workflow_position,
-                                        )
+                rows = db(stable.deleted == False).select(stable.id,
+                                                          stable.name,
+                                                          stable.is_closed,
+                                                          cache = s3db.cache,
+                                                          orderby = stable.workflow_position,
+                                                          )
                 status_filter_options = OrderedDict((row.id, T(row.name)) for row in rows)
                 status_filter_defaults = [row.id for row in rows if not row.is_closed]
                 filter_widgets.append(S3OptionsFilter("status_id",
@@ -990,14 +991,13 @@ def case_activity():
                                                       hidden = True,
                                                       header = True,
                                                       options = lambda: \
-                                                                s3_get_filter_opts(
-                                                                  "br_need",
-                                                                  org_filter = org_specific_needs,
-                                                                  translate = True,
-                                                                  ),
+                                                                s3_get_filter_opts("br_need",
+                                                                                   org_filter = org_specific_needs,
+                                                                                   translate = True,
+                                                                                   ),
                                                       ))
 
-            resource.configure(filter_widgets=filter_widgets)
+            resource.configure(filter_widgets = filter_widgets)
 
             # Report options
             if r.method == "report":
@@ -1032,7 +1032,30 @@ def case_activity():
                                  "totals": True,
                                  },
                     }
-                resource.configure(report_options=report_options)
+                resource.configure(report_options = report_options)
+
+        # Filter for valid+open cases
+        if can_see_cases:
+            # Can use a normal Resource Query
+            query = (FS("person_id$case.id") != None) & \
+                    (FS("person_id$case.invalid") == False) & \
+                    (FS("person_id$case.status_id$is_closed") == False)
+        else:
+            # Activity Reader cannot see Case
+            # => Need to perform a DAL Query
+            rows = resource.select(fields = ("id", "person_id")).rows
+            activities = {row["br_case_activity.person_id"]: row["br_case_activity.id"] for row in rows}
+            ctable = s3db.br_case
+            cstable = s3db.br_case_status
+            query = (ctable.person_id.belongs(activities)) & \
+                    (ctable.invalid == False) & \
+                    (ctable.status_id == cstable.id) & \
+                    (cstable.is_closed == False)
+            cases = db(query).select(ctable.person_id)
+            activity_ids = [activities[row.person_id] for row in cases]
+            query = (FS("id").belongs(activity_ids))
+
+        resource.add_filter(query)
 
         # Set default for human_resource_ids
         if human_resource_id:
@@ -1042,9 +1065,10 @@ def case_activity():
             utable.human_resource_id.default = human_resource_id
 
         # Represent person_id as link to case file
+        from s3db.pr import pr_PersonRepresent
         field = table.person_id
         field.label = labels.CASE
-        field.represent = s3db.pr_PersonRepresent(show_link=True)
+        field.represent = pr_PersonRepresent(show_link = True)
 
         # Add case data to list fields
         list_fields = resource.get_config("list_fields")
@@ -1157,7 +1181,7 @@ def activities():
                                                                   ),
                                                       ))
 
-            resource.configure(filter_widgets=filter_widgets)
+            resource.configure(filter_widgets = filter_widgets)
 
         # Make read-only
         resource.configure(insertable = False,
@@ -1290,6 +1314,7 @@ def assistance_measure():
                 if not root_org:
                     root_org = auth.root_org()
                 if root_org:
+                    from s3 import IS_ONE_OF
                     dbset = s3db.br_org_assistance_themes(root_org)
                     field = table.theme_ids
                     field.requires = IS_EMPTY_OR(IS_ONE_OF(dbset, "br_assistance_theme.id",

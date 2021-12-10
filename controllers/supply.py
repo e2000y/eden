@@ -42,6 +42,7 @@ def distribution_rheader(r):
             tabs = [(T("Edit Details"), None),
                     (T("Beneficiaries"), "person"),
                     ]
+            from s3 import s3_rheader_tabs
             rheader_tabs = s3_rheader_tabs(r, tabs)
 
             table = r.table
@@ -129,6 +130,7 @@ def item_category():
         if r.id:
             # Should not be able to set the Parent to this record
             # @ToDo: Also prevent setting to any of the categories of which this is an ancestor
+            from s3 import IS_ONE_OF
             from s3db.supply import supply_ItemCategoryRepresent
             the_set = db(table.id != r.id)
             table.parent_item_category_id.requires = IS_EMPTY_OR(

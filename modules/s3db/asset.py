@@ -111,8 +111,6 @@ class AssetModel(S3Model):
         organisation_id = self.org_organisation_id
         person_id = self.pr_person_id
 
-        NONE = current.messages["NONE"]
-
         settings = current.deployment_settings
         org_site_label = settings.get_org_site_label()
         #radios = settings.get_asset_radios()
@@ -892,7 +890,7 @@ $.filterOptionsS3({
 #        # ---------------------------------------------------------------------
 #        # Pass names back to global scope (s3.*)
 #        #
-#        return {}
+#        return None
 
 # =============================================================================
 #class AssetTeamModel(S3Model):
@@ -921,7 +919,7 @@ $.filterOptionsS3({
 #        # ---------------------------------------------------------------------
 #        # Pass names back to global scope (s3.*)
 #        #
-#        return {}
+#        return None
 
 # =============================================================================
 class AssetTelephoneModel(S3Model):
@@ -986,7 +984,7 @@ class AssetTelephoneModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
 # =============================================================================
 def asset_get_current_log(asset_id):
@@ -1147,8 +1145,6 @@ def asset_rheader(r):
             s3db = current.s3db
             s3 = current.response.s3
 
-            NONE = current.messages["NONE"]
-
             if record.type == ASSET_TYPE_TELEPHONE:
                 tabs = [(T("Asset Details"), None, {"native": True}),
                         (T("Telephone Details"), "telephone"),
@@ -1292,9 +1288,10 @@ def asset_controller():
     s3.prep = prep
 
     # Import pre-process
-    def import_prep(data):
+    def import_prep(tree):
         # Flag that this is an Import (to distinguish from Sync)
         current.response.s3.asset_import = True
+
     s3.import_prep = import_prep
 
     # Post-processor
@@ -1306,7 +1303,7 @@ def asset_controller():
             else:
                 script = "/%s/static/scripts/S3/s3.asset.js" % r.application
                 s3.scripts.append(script)
-            S3CRUD.action_buttons(r, deletable=False)
+            s3_action_buttons(r, deletable=False)
         return output
     s3.postp = postp
 
@@ -1342,7 +1339,8 @@ class asset_AssetRepresent(S3Represent):
             key and fields are not used, but are kept for API
             compatibility reasons.
 
-            @param values: the organisation IDs
+            Args:
+                values: the organisation IDs
         """
 
         db = current.db
@@ -1377,7 +1375,8 @@ class asset_AssetRepresent(S3Represent):
         """
             Represent a single Row
 
-            @param row: the asset_asset Row
+            Args:
+                row: the asset_asset Row
         """
 
         # Custom Row (with the item & brand left-joined)
@@ -1399,21 +1398,26 @@ class asset_AssetRepresent(S3Represent):
         """
             Represent a (key, value) as hypertext link.
 
-            @param k: the key (site_id)
-            @param v: the representation of the key
-            @param row: the row with this key
+            Args:
+                k: the key (site_id)
+                v: the representation of the key
+                row: the row with this key
         """
 
         if row:
             atype = row.get("asset_asset.type", None)
             if atype == 1:
-                return A(v, _href=URL(c="vehicle", f="vehicle",
-                                      args = [k],
-                                      # remove the .aaData extension in paginated views
-                                      extension = ""
-                                      ))
+                return A(v,
+                         _href = URL(c="vehicle", f="vehicle",
+                                     args = [k],
+                                     # remove the .aaData extension in paginated views
+                                     extension = ""
+                                     ),
+                         )
         k = s3_str(k)
-        return A(v, _href=self.linkto.replace("[id]", k) \
-                                     .replace("%5Bid%5D", k))
+        return A(v,
+                 _href = self.linkto.replace("[id]", k) \
+                                    .replace("%5Bid%5D", k),
+                 )
 
 # END =========================================================================

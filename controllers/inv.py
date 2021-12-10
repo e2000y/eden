@@ -50,45 +50,43 @@ def inv_item():
     """ REST Controller """
 
     # Import pre-process
-    def import_prep(data):
+    def import_prep(tree):
         """
             Process option to Delete all Stock records of the Organisation/Branch
             before processing a new data import
         """
-        if s3.import_replace:
-            resource, tree = data
-            if tree is not None:
-                xml = current.xml
-                tag = xml.TAG
-                att = xml.ATTRIBUTE
+        if s3.import_replace and tree is not None:
+            xml = current.xml
+            tag = xml.TAG
+            att = xml.ATTRIBUTE
 
-                root = tree.getroot()
-                expr = "/%s/%s[@%s='org_organisation']/%s[@%s='name']" % \
-                       (tag.root, tag.resource, att.name, tag.data, att.field)
-                orgs = root.xpath(expr)
-                otable = s3db.org_organisation
-                stable = s3db.org_site
-                itable = s3db.inv_inv_item
-                for org in orgs:
-                    org_name = org.get("value", None) or org.text
-                    if org_name:
-                        try:
-                            org_name = json.loads(xml.xml_decode(org_name))
-                        except:
-                            pass
-                    if org_name:
-                        query = (otable.name == org_name) & \
-                                (stable.organisation_id == otable.id) & \
-                                (itable.site_id == stable.id)
-                        resource = s3db.resource("inv_inv_item",
-                                                 filter = query,
-                                                 )
-                        # Use cascade = True so that the deletion gets
-                        # rolled back if the import fails:
-                        resource.delete(format = "xml",
-                                        cascade = True,
-                                        )
-            resource.skip_import = True
+            root = tree.getroot()
+            expr = "/%s/%s[@%s='org_organisation']/%s[@%s='name']" % \
+                   (tag.root, tag.resource, att.name, tag.data, att.field)
+            orgs = root.xpath(expr)
+            otable = s3db.org_organisation
+            stable = s3db.org_site
+            itable = s3db.inv_inv_item
+            for org in orgs:
+                org_name = org.get("value", None) or org.text
+                if org_name:
+                    try:
+                        org_name = json.loads(xml.xml_decode(org_name))
+                    except:
+                        pass
+                if org_name:
+                    query = (otable.name == org_name) & \
+                            (stable.organisation_id == otable.id) & \
+                            (itable.site_id == stable.id)
+                    resource = s3db.resource("inv_inv_item",
+                                             filter = query,
+                                             )
+                    # Use cascade = True so that the deletion gets
+                    # rolled back if the import fails:
+                    resource.delete(format = "xml",
+                                    cascade = True,
+                                    )
+
     s3.import_prep = import_prep
 
     def prep(r):
@@ -202,11 +200,11 @@ S3.supply.itemPackID=%s%s''' % (packs,
                                 "site": r.record.site_id,
                                 },
                         )
-            from s3 import S3CRUD
-            add_btn = S3CRUD.crud_button(label = T("New Adjustment"),
-                                         _href = _href,
-                                         _id = "add-btn",
-                                         )
+            from s3 import crud_button
+            add_btn = crud_button(label = T("New Adjustment"),
+                                  _href = _href,
+                                  _id = "add-btn",
+                                  )
             if settings.ui.formstyle == "bootstrap":
                 add_btn.add_class("btn btn-primary")
             else:
@@ -224,7 +222,8 @@ S3.supply.itemPackID=%s%s''' % (packs,
                               pdf_orientation = "Landscape",
                               pdf_table_autogrow = "B",
                               pdf_groupby = "site_id, item_id",
-                              pdf_orderby = "expiry_date, supply_org_id",
+                              # Not actioned:
+                              #pdf_orderby = "expiry_date, supply_org_id",
                               replace_option = T("Remove existing data before import"),
                               rheader = inv_rheader,
                               )
@@ -836,8 +835,9 @@ def commit():
                                           _target = "_blank",
                                           _href = URL(c = "default",
                                                       f = "user",
-                                                      args = ["profile"]
-                                                      ))
+                                                      args = ["profile"],
+                                                      ),
+                                          )
 
                 jappend = s3.jquery_ready.append
                 jappend('''
@@ -950,7 +950,7 @@ def commit_rheader(r):
                             _href = URL(f = "commit",
                                         args = [record.id,
                                                 "send",
-                                                ]
+                                                ],
                                         ),
                             _id = "commit-send",
                             _class = "action-btn"
@@ -1069,7 +1069,8 @@ def facility():
     # Open record in this controller after creation
     s3db.configure("org_facility",
                    create_next = URL(c="inv", f="facility",
-                                     args = ["[id]", "read"]),
+                                     args = ["[id]", "read"],
+                                     ),
                    )
 
     from s3db.org import org_facility_controller
@@ -1152,7 +1153,8 @@ def donor():
     # Open record in this controller after creation
     s3db.configure("org_organisation",
                    create_next = URL(c="inv", f="donor",
-                                     args = ["[id]", "read"]),
+                                     args = ["[id]", "read"],
+                                     ),
                    )
 
     # NB Type gets defaulted in the Custom CRUD form
@@ -1189,7 +1191,8 @@ def supplier():
     # Open record in this controller after creation
     s3db.configure("org_organisation",
                    create_next = URL(c="inv", f="supplier",
-                                     args = ["[id]", "read"]),
+                                     args = ["[id]", "read"],
+                                     ),
                    )
 
     # NB Type gets defaulted in the Custom CRUD form

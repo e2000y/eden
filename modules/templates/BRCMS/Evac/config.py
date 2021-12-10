@@ -65,6 +65,7 @@ def config(settings):
     settings.br.manage_assistance = False
     settings.br.needs_org_specific = False
 
+    settings.L10n.mandatory_lastname = True
     settings.L10n.ethnicity = {"Achakzai": "Achakzai",
                                "Afshar": "Afshar",
                                "Aimaq": "Aimaq (Jamshidi, Taimuri, Firozkohi, Taimani)",
@@ -296,13 +297,13 @@ def config(settings):
             s3db = current.s3db
             table = s3db.table(tablename)
             ptable = s3db.pr_person
-            query = (table._id == row.id) & \
+            query = (table.id == row.id) & \
                     (ptable.pe_id == table.pe_id)
             person = current.db(query).select(ptable.realm_entity,
                                               limitby = (0, 1),
                                               ).first()
             if person:
-                realm_entity = person.realm_entity
+                return person.realm_entity
 
         elif tablename == "hrm_human_resource":
             # => Inherit from the Person
@@ -547,11 +548,8 @@ def config(settings):
         """
 
         auth = current.auth
-        withdraw_role = auth.s3_withdraw_role
-
-        auth = current.auth
-        add_membership = auth.add_membership
         system_roles = auth.get_system_roles()
+        withdraw_role = auth.s3_withdraw_role
 
         # Is this the Admin role?
         if group_id == system_roles.ADMIN:
@@ -714,7 +712,6 @@ def config(settings):
     # =========================================================================
     def customise_auth_user_resource(r, tablename):
 
-        # @ToDo: Call settings.auth.add_role via auth_membership_create_onaccept
         current.s3db.configure("auth_membership",
                                create_onaccept = auth_membership_create_onaccept,
                                )
@@ -935,9 +932,7 @@ def config(settings):
 
         # Create a pr_realm record
         rtable = s3db.pr_realm
-        realm_id = rtable.insert(name = "%s_%s" % ("br_case_activity",
-                                                   activity_id,
-                                                   ))
+        realm_id = rtable.insert(name = "br_case_activity_%s" % activity_id)
         realm = Storage(id = realm_id)
         s3db.update_super(rtable, realm)
         realm_entity = realm["pe_id"]
@@ -1003,6 +998,10 @@ def config(settings):
         """
 
         form_vars = form.vars
+        if "human_resource_id" not in form_vars:
+            # Handler unchanged
+            return
+
         human_resource_id = form_vars.human_resource_id
         if human_resource_id == str(form.record.human_resource_id):
             # Handler unchanged
@@ -1046,6 +1045,17 @@ def config(settings):
                                       limitby = (0, 1),
                                       ).first()
             pr_add_affiliation(person.pe_id, realm_entity, role="Realm Hierarchy")
+
+    # =========================================================================
+    def br_case_activity_update_create_onaccept(form):
+        """
+            Set the human_resource_id for the Update
+        """
+
+        human_resource_id = current.auth.s3_logged_in_human_resource()
+
+        if human_resource_id:
+            current.db(current.s3db.br_case_activity_update.id == form.vars.id).update(human_resource_id = human_resource_id)
 
     # =========================================================================
     def customise_br_case_activity_resource(r, tablename):
@@ -1161,6 +1171,8 @@ def config(settings):
                                                            ).first()
                 table.priority.default = case.priority
             if not current.auth.s3_has_role("ORG_ADMIN"):
+                # Needs to be done in the controller prep
+                #f.default = None
                 f.writable = False
             else:
                 # Filter to Handlers for the WG selected
@@ -1214,9 +1226,16 @@ def config(settings):
         def prep(r):
             # Call standard prep
             if callable(standard_prep):
-                result = standard_prep(r)
+                # Modify the standard Prep, since Handlers cannot see Cases
+                result = standard_prep(r, can_see_cases=False)
             else:
                 result = True
+
+            s3db = current.s3db
+            s3db.br_case_activity_update.human_resource_id.writable = False
+            s3db.configure("br_case_activity_update",
+                           create_onaccept = br_case_activity_update_create_onaccept,
+                           )
 
             if r.get_vars.get("my_cases"):
                 # Filter to Activities for Cases assigned to this person
@@ -1907,6 +1926,18 @@ def config(settings):
             f.readable = f.writable = False
             #f.label = T("Group Head")
 
+            from s3 import S3AddPersonWidget
+            settings.pr.name_format = "%(first_name)s %(last_name)s"
+            settings.pr.dob_required = True
+            settings.pr.gender_required = True
+            table.person_id.widget = S3AddPersonWidget(controller = "br",
+                                                       # auto-generated
+                                                       #pe_label = True,
+                                                       separate_name_fields= True,
+                                                       )
+
+            s3db.pr_person.first_name.label = T("Given Names")
+
             list_fields = r.resource.get_config("list_fields")
             try:
                 list_fields.remove("group_head")
@@ -1936,6 +1967,7 @@ def config(settings):
     # =========================================================================
     def pr_person_postprocess(form):
         """
+            Create the ID
             Set the Correct Realm for the Case and then the Person
         """
 
@@ -1989,6 +2021,29 @@ def config(settings):
             db = current.db
             s3db = current.s3db
 
+            # Create PE Label
+            from s3 import soundex
+            first_name = soundex(form_vars.first_name)
+            last_name = soundex(form_vars.last_name)
+            date_of_birth = form_vars.date_of_birth.strftime("%y%m%d")
+            gender = int(form_vars.gender)
+            if gender == 2: # Female
+                # Increase Month by 50
+                date_of_birth = "%s%s%s" % (date_of_birth[:2],
+                                            int(date_of_birth[2:4]) + 50,
+                                            date_of_birth[-2:],
+                                            )
+            # Transpose (first letter from last_name moved to 2nd position)
+            # & Hyphenate
+            label = "%s%s%s-%s%s%s-%s" % (first_name[:1],
+                                          last_name[:1],
+                                          first_name[1:3],
+                                          first_name[-1:],
+                                          last_name[1:],
+                                          date_of_birth[:1],
+                                          date_of_birth[1:],
+                                          )
+
             # Lookup Case
             person_id = form_vars.id
             ctable = s3db.br_case
@@ -2005,9 +2060,7 @@ def config(settings):
         else:
             # Create a pr_realm record
             rtable = s3db.pr_realm
-            realm_id = rtable.insert(name = "%s_%s" % ("br_case",
-                                                       case.id,
-                                                       ))
+            realm_id = rtable.insert(name = "br_case_%s" % case.id)
             realm = Storage(id = realm_id)
             s3db.update_super(rtable, realm)
             realm_entity = realm["pe_id"]
@@ -2015,7 +2068,12 @@ def config(settings):
             case.update_record(realm_entity = realm_entity)
             # Set the person to use this for it's realm
             ptable = s3db.pr_person
-            db(ptable.id == person_id).update(realm_entity = realm_entity)
+            if record:
+                db(ptable.id == person_id).update(realm_entity = realm_entity)
+            else:
+                db(ptable.id == person_id).update(pe_label = label,
+                                                  realm_entity = realm_entity,
+                                                  )
 
         # Set appropriate affiliations
         from s3db.pr import pr_add_affiliation
@@ -2071,7 +2129,7 @@ def config(settings):
             r.unauthorised()
 
         ftable = s3db.pr_forum
-        forum = current.db(ftable.uuid == "ORG_ADMIN_RW_%s" % organisation_id).select(ftable.pe_id,
+        forum = current.db(ftable.uuid == "ORG_ADMIN_RO_%s" % organisation_id).select(ftable.pe_id,
                                                                                       limitby = (0, 1),
                                                                                       ).first()
 
@@ -2115,6 +2173,8 @@ def config(settings):
                 result = True
 
             if r.component:
+                if r.component_name == "case_activity":
+                    s3db.br_case_activity.human_resource_id.default = None
                 return result
 
             from gluon import IS_EMPTY_OR
@@ -2133,9 +2193,24 @@ def config(settings):
             f.requires = IS_EMPTY_OR(f.requires)
 
             ptable = s3db.pr_person
-            # Gender optional
-            f = ptable.gender
-            f.requires = IS_EMPTY_OR(f.requires)
+            ptable.first_name.label = T("Given Names")
+            # Gender optional...no Required
+            #f = ptable.gender
+            #f.requires = IS_EMPTY_OR(f.requires)
+            # DoB required
+            f = ptable.date_of_birth
+            requires = f.requires
+            if hasattr(requires, "other"):
+                f.requires = requires.other
+            # Last Name required
+            # Needs to be done before loading model
+            #settings.L10n.mandatory_lastname = True
+            # pe_label is auto-generated onaccept
+            if r.id:
+                ptable.pe_label.writable = False
+            else:
+                f = ptable.pe_label
+                f.readable = f.writable = False
 
             table = s3db.br_case
 
@@ -2170,11 +2245,11 @@ def config(settings):
                            "case.status_id",
                            "pe_label",
                            "first_name",
-                           "middle_name",
+                           #"middle_name",
                            "last_name",
                            "gender",
                            "date_of_birth",
-                           #"person_details.nationality",
+                           "person_details.nationality",
                            "physical_description.ethnicity",
                            (T("Occupation"), "occupation_type_person.occupation_type_id"),
                            "person_details.marital_status",
@@ -2235,7 +2310,7 @@ def config(settings):
             list_fields = ["case.priority",
                            "pe_label",
                            "first_name",
-                           "middle_name",
+                           #"middle_name",
                            "last_name",
                            "gender",
                            "date_of_birth",
@@ -2312,6 +2387,8 @@ def config(settings):
         db = current.db
         s3db = current.s3db
 
+        settings.project.task_comments = False
+
         # Just People for Assignees
         task_id = r.id
         if task_id and tablename == r.tablename:
@@ -2365,9 +2442,9 @@ def config(settings):
                 filter_opts = [p.pe_id for p in persons]
                 
         else:
-            if not auth.s3_has_roles("CASE_MANAGER",
-                                     "ORG_ADMIN",
-                                     ):
+            if not auth.s3_has_roles(("CASE_MANAGER",
+                                      "ORG_ADMIN",
+                                      )):
                 # Can only assign self
                 filter_opts = [auth.user.pe_id]
             else:
@@ -2467,6 +2544,14 @@ def config(settings):
                        )
 
     settings.customise_security_zone_resource = customise_security_zone_resource
+
+    # =========================================================================
+    def customise_transport_airport_resource(r, tablename):
+
+        f = current.s3db.transport_airport.organisation_id
+        f.readable = f.writable = False
+
+    settings.customise_transport_airport_resource = customise_transport_airport_resource
 
     # =========================================================================
     def customise_transport_flight_resource(r, tablename):

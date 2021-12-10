@@ -46,9 +46,6 @@ from gluon.languages import read_dict, write_dict
 from ..s3 import *
 from s3layouts import S3PopupLink
 
-# Compact JSON encoding
-SEPARATORS = (",", ":")
-
 # =============================================================================
 class DataCollectionTemplateModel(S3Model):
     """
@@ -1350,7 +1347,7 @@ class TrainingEventAssessmentModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return {}
+        return None
 
 # =============================================================================
 def dc_answer_form(r, tablename):
@@ -1637,9 +1634,11 @@ class dc_TargetReport(S3Method):
         Results in charts for quantitative questions and
                    full text of the qualitative answers
 
-        Used by IFRC bkk_training_evaluation
+        Used by:
+            IFRC bkk_training_evaluation
 
-        @ToDo: Add support for Grids
+        TODO:
+            Add support for Grids
     """
 
     # -------------------------------------------------------------------------
@@ -1647,8 +1646,9 @@ class dc_TargetReport(S3Method):
         """
             Entry point for REST API
 
-            @param r: the S3Request
-            @param attr: controller arguments
+            Args:
+                r: the S3Request
+                attr: controller arguments
         """
 
         if r.name == "target":
@@ -2362,7 +2362,7 @@ def dc_rheader(r, tabs=None):
                 if record.options:
                     return ", ".join(record.options)
                 else:
-                    return current.messages["NONE"]
+                    return NONE
 
             rheader_fields = ([(T("Question"), "name")],
                               [(T("Options"), options)],

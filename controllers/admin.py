@@ -36,6 +36,7 @@ def role():
         if r.representation not in ("html", "aadata", "csv", "json"):
             return False
 
+        from s3 import S3RoleManager
         # Configure REST methods
         methods = ("read",
                    "list",
@@ -48,7 +49,7 @@ def role():
                    "datalist",
                    "import",
                    )
-        r.set_handler(methods, s3base.S3RoleManager)
+        r.set_handler(methods, S3RoleManager)
         return True
     s3.prep = prep
 
@@ -113,7 +114,8 @@ def user():
         lappend("link_user_to")
         table.link_user_to.represent = lambda v: ", ".join([s3_str(link_user_to[opt]) for opt in v]) \
                                                  if v else current.messages["NONE"]
-    date_represent = s3base.S3DateTime.date_represent
+    from s3 import S3DateTime
+    date_represent = S3DateTime.date_represent
     table.created_on.represent = date_represent
     if UNAPPROVED:
         lappend((T("Registration"), "created_on"))
@@ -185,22 +187,27 @@ def user():
         redirect(URL(args=[]))
 
     # Custom Methods
+    from s3 import S3RoleManager
     set_method = s3db.set_method
     set_method("auth", "user",
                method = "roles",
-               action = s3base.S3RoleManager)   # s3roles.py
+               action = S3RoleManager,   # s3roles.py
+               )
 
     set_method("auth", "user",
                method = "disable",
-               action = disable_user)
+               action = disable_user,
+               )
 
     set_method("auth", "user",
                method = "approve",
-               action = approve_user)
+               action = approve_user,
+               )
 
     set_method("auth", "user",
                method = "link",
-               action = link_user)
+               action = link_user,
+               )
 
     if UNAPPROVED:
         title_list = T("Unapproved Users")
@@ -263,6 +270,7 @@ def user():
         tabs = [(T("User Details"), None),
                 (T("Roles"), "roles")
                 ]
+        from s3 import s3_rheader_tabs
         rheader_tabs = s3_rheader_tabs(r, tabs)
         rheader.append(rheader_tabs)
 
@@ -395,7 +403,7 @@ def user():
             # @ToDo: Merge these with the code in s3aaa.py and use S3SQLCustomForm to implement
             form = output.get("form", None)
             if not form:
-                crud_button = s3base.S3CRUD.crud_button
+                from s3 import crud_button
                 if UNAPPROVED:
                     switch_view = crud_button(T("View All Users"),
                                               _href = URL(vars = {}),
@@ -705,6 +713,8 @@ def acl():
         for testing purposes, not for production use!
     """
 
+    from s3 import IS_ACL, IS_ONE_OF, S3ACLWidget
+
     table = auth.permission.table
     tablename = table._tablename
     table.group_id.requires = IS_ONE_OF(db, "auth_group.id", "%(role)s")
@@ -804,9 +814,10 @@ def ticket():
     e = RestrictedError()
     e.load(request, app, ticket)
 
+    from s3 import Traceback
     return {"app": app,
             "ticket": ticket,
-            "traceback": s3base.Traceback(e.traceback),
+            "traceback": Traceback(e.traceback),
             "code": e.code,
             "layer": e.layer,
             }
